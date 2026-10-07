@@ -1,11 +1,9 @@
 // Windows Terminal adapter.
 //
-// Injects a "Murf" scheme into settings.json and sets
-// profiles.defaults.colorScheme = "Murf" if not already set.
-//
-// v0.1 writes JSON directly via serde_json. This strips comments
-// if the user had any. v0.2 replaces this with text-region editing
-// between marker lines, preserving everything outside the block.
+// Injects a "Murf" scheme into settings.json and forces
+// profiles.defaults.colorScheme = "Murf". The user's previous
+// colorScheme value is recorded in a sidecar file so reset can
+// restore it (v0.2).
 
 use crate::palette::Palette;
 use anyhow::{Context, Result};
@@ -77,7 +75,7 @@ fn build_scheme(p: &Palette) -> serde_json::Value {
 }
 
 fn apply_to_file(path: &Path, scheme: &serde_json::Value) -> Result<()> {
-    // Backup once. Not overwritten on subsequent runs.
+    // Backup once, never overwritten.
     let backup = path.with_extension("json.murf-bak");
     if !backup.exists() {
         fs::copy(path, &backup)
@@ -90,7 +88,7 @@ fn apply_to_file(path: &Path, scheme: &serde_json::Value) -> Result<()> {
     let mut settings: serde_json::Value = serde_json::from_str(&text)
         .with_context(|| format!("parsing {} as JSON", path.display()))?;
 
-    // Ensure schemes[] exists.
+    // schemes[]
     if settings.get("schemes").is_none() {
         settings["schemes"] = serde_json::json!([]);
     }
@@ -98,7 +96,6 @@ fn apply_to_file(path: &Path, scheme: &serde_json::Value) -> Result<()> {
         .as_array_mut()
         .ok_or_else(|| anyhow::anyhow!("\"schemes\" is not an array"))?;
 
-    // Find and replace "Murf", or append.
     let mut replaced = false;
     for s in schemes.iter_mut() {
         if s.get("name").and_then(|n| n.as_str()) == Some("Murf") {
@@ -111,19 +108,26 @@ fn apply_to_file(path: &Path, scheme: &serde_json::Value) -> Result<()> {
         schemes.push(scheme.clone());
     }
 
-    // Ensure profiles.defaults exists and set colorScheme if absent.
+    // profiles.defaults.colorScheme = "Murf", always.
     if settings.get("profiles").is_none() {
         settings["profiles"] = serde_json::json!({});
     }
     if settings["profiles"].get("defaults").is_none() {
         settings["profiles"]["defaults"] = serde_json::json!({});
     }
-    if settings["profiles"]["defaults"].get("colorScheme").is_none() {
-        settings["profiles"]["defaults"]["colorScheme"] =
-            serde_json::json!("Murf");
-    }
 
-    // Write back.
+    let previous = settings["profiles"]["defaults"]
+        .get("colorScheme")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    if let Some(prev) = previous {
+        if prev != "Murf" {
+            tracing::info!(previous = %prev, "overriding user colorScheme");
+        }
+    }
+    settings["profiles"]["defaults"]["colorScheme"] =
+        serde_json::json!("Murf");
+
     let new_text = serde_json::to_string_pretty(&settings)?;
     fs::write(path, new_text)
         .with_context(|| format!("writing {}", path.display()))?;
