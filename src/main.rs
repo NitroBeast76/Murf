@@ -1,5 +1,6 @@
-// Murf entry point. v0.1 step 4: watcher wired in.
+// Murf entry point. v0.1 final: tray + watcher + matugen + WT adapter.
 
+mod adapters;
 mod matugen;
 mod palette;
 mod watcher;
@@ -51,28 +52,30 @@ fn make_icon() -> Icon {
 fn run_apply(wallpaper: &str) {
     tracing::info!(wallpaper = %wallpaper, "applying palette");
 
-    match matugen::generate(wallpaper, "dark", "scheme-tonal-spot", 0.0) {
-        Ok(palette) => {
-            tracing::info!(roles = palette.roles.len(), "palette parsed");
-            for role in [
-                "background",
-                "on_background",
-                "primary",
-                "secondary",
-                "tertiary",
-                "error",
-                "surface",
-                "surface_container_high",
-            ] {
-                tracing::info!(
-                    role = role,
-                    hex = palette.hex(role).unwrap_or("<missing>"),
-                    "role"
-                );
-            }
-        }
+    let palette = match matugen::generate(
+        wallpaper,
+        "dark",
+        "scheme-tonal-spot",
+        0.0,
+    ) {
+        Ok(p) => p,
         Err(e) => {
             tracing::error!(error = %e, "matugen failed");
+            return;
+        }
+    };
+
+    tracing::info!(roles = palette.roles.len(), "palette parsed");
+
+    match adapters::windows_terminal::apply(&palette) {
+        Ok(paths) if paths.is_empty() => {
+            tracing::warn!("no Windows Terminal config found");
+        }
+        Ok(paths) => {
+            tracing::info!(count = paths.len(), "adapter applied");
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "adapter failed");
         }
     }
 }
@@ -87,8 +90,7 @@ fn main() -> Result<()> {
 
     tracing::info!("murf starting");
 
-    let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
-    let proxy = event_loop.create_proxy();
+    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
     // Tray menu → event loop.
     let menu_proxy = event_loop.create_proxy();
