@@ -1,4 +1,4 @@
-// Murf entry point. v0.1 final: tray + watcher + matugen + WT adapter.
+// Murf entry point. v0.1: tray + watcher + matugen + WT adapter + palette dump.
 
 mod adapters;
 mod matugen;
@@ -6,11 +6,17 @@ mod palette;
 mod watcher;
 
 use anyhow::Result;
+use std::fs;
+use std::path::PathBuf;
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem},
     Icon, TrayIconBuilder,
 };
+
+const MODE: &str = "smart";
+const SCHEME_TYPE: &str = "scheme-tonal-spot";
+const CONTRAST: f32 = 0.0;
 
 enum UserEvent {
     Menu(MenuEvent),
@@ -49,15 +55,38 @@ fn make_icon() -> Icon {
     Icon::from_rgba(rgba, size, size).expect("valid icon")
 }
 
+fn write_palette_dump(
+    wallpaper: &str,
+    palette: &palette::Palette,
+) -> Result<PathBuf> {
+    let Some(local) = std::env::var_os("LOCALAPPDATA") else {
+        anyhow::bail!("LOCALAPPDATA not set");
+    };
+    let dir = PathBuf::from(local).join("Murf");
+    fs::create_dir_all(&dir)?;
+    let path = dir.join("last-palette.json");
+
+    let mut roles = serde_json::Map::new();
+    for (k, v) in &palette.roles {
+        roles.insert(k.clone(), serde_json::Value::String(v.hex.clone()));
+    }
+
+    let doc = serde_json::json!({
+        "wallpaper": wallpaper,
+        "mode": MODE,
+        "scheme_type": SCHEME_TYPE,
+        "contrast": CONTRAST,
+        "roles": roles,
+    });
+
+    fs::write(&path, serde_json::to_string_pretty(&doc)?)?;
+    Ok(path)
+}
+
 fn run_apply(wallpaper: &str) {
     tracing::info!(wallpaper = %wallpaper, "applying palette");
 
-    let palette = match matugen::generate(
-        wallpaper,
-        "dark",
-        "scheme-tonal-spot",
-        0.0,
-    ) {
+    let palette = match matugen::generate(wallpaper, MODE, SCHEME_TYPE, CONTRAST) {
         Ok(p) => p,
         Err(e) => {
             tracing::error!(error = %e, "matugen failed");
@@ -66,6 +95,11 @@ fn run_apply(wallpaper: &str) {
     };
 
     tracing::info!(roles = palette.roles.len(), "palette parsed");
+
+    match write_palette_dump(wallpaper, &palette) {
+        Ok(path) => tracing::info!(path = %path.display(), "palette dump written"),
+        Err(e) => tracing::warn!(error = %e, "failed to write palette dump"),
+    }
 
     match adapters::windows_terminal::apply(&palette) {
         Ok(paths) if paths.is_empty() => {
@@ -92,13 +126,11 @@ fn main() -> Result<()> {
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
-    // Tray menu → event loop.
     let menu_proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some(move |event| {
         let _ = menu_proxy.send_event(UserEvent::Menu(event));
     }));
 
-    // Watcher → event loop.
     let watcher = watcher::Watcher::start(6)?;
     let watcher_proxy = event_loop.create_proxy();
     let rx = watcher.rx;
@@ -148,4 +180,3 @@ fn main() -> Result<()> {
         }
     });
 }
-
