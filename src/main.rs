@@ -1,7 +1,8 @@
-﻿// Murf entry point. v0.1 step 3: tray icon + menu + matugen probe.
+// Murf entry point. v0.1 step 4: watcher wired in.
 
 mod matugen;
 mod palette;
+mod watcher;
 
 use anyhow::Result;
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
@@ -12,6 +13,7 @@ use tray_icon::{
 
 enum UserEvent {
     Menu(MenuEvent),
+    WallpaperChanged(String),
 }
 
 fn make_icon() -> Icon {
@@ -46,14 +48,10 @@ fn make_icon() -> Icon {
     Icon::from_rgba(rgba, size, size).expect("valid icon")
 }
 
-fn run_apply() {
-    let Some(wallpaper) = matugen::current_wallpaper() else {
-        tracing::warn!("no wallpaper path found in registry");
-        return;
-    };
+fn run_apply(wallpaper: &str) {
     tracing::info!(wallpaper = %wallpaper, "applying palette");
 
-    match matugen::generate(&wallpaper, "dark", "scheme-tonal-spot", 0.0) {
+    match matugen::generate(wallpaper, "dark", "scheme-tonal-spot", 0.0) {
         Ok(palette) => {
             tracing::info!(roles = palette.roles.len(), "palette parsed");
             for role in [
@@ -89,12 +87,24 @@ fn main() -> Result<()> {
 
     tracing::info!("murf starting");
 
-    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
-
+    let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
+
+    // Tray menu → event loop.
+    let menu_proxy = event_loop.create_proxy();
     MenuEvent::set_event_handler(Some(move |event| {
-        let _ = proxy.send_event(UserEvent::Menu(event));
+        let _ = menu_proxy.send_event(UserEvent::Menu(event));
     }));
+
+    // Watcher → event loop.
+    let watcher = watcher::Watcher::start(6)?;
+    let watcher_proxy = event_loop.create_proxy();
+    let rx = watcher.rx;
+    std::thread::spawn(move || {
+        for path in rx {
+            let _ = watcher_proxy.send_event(UserEvent::WallpaperChanged(path));
+        }
+    });
 
     let menu = Menu::new();
     let apply_now = MenuItem::new("Apply now", true, None);
@@ -117,13 +127,22 @@ fn main() -> Result<()> {
     event_loop.run(move |event, _target, control_flow| {
         *control_flow = ControlFlow::Wait;
 
-        if let tao::event::Event::UserEvent(UserEvent::Menu(menu_event)) = event {
-            if menu_event.id == apply_id {
-                run_apply();
-            } else if menu_event.id == quit_id {
-                tracing::info!("quit clicked");
-                *control_flow = ControlFlow::Exit;
+        match event {
+            tao::event::Event::UserEvent(UserEvent::Menu(menu_event)) => {
+                if menu_event.id == apply_id {
+                    match matugen::current_wallpaper() {
+                        Some(w) => run_apply(&w),
+                        None => tracing::warn!("no wallpaper path found"),
+                    }
+                } else if menu_event.id == quit_id {
+                    tracing::info!("quit clicked");
+                    *control_flow = ControlFlow::Exit;
+                }
             }
+            tao::event::Event::UserEvent(UserEvent::WallpaperChanged(path)) => {
+                run_apply(&path);
+            }
+            _ => {}
         }
     });
 }
