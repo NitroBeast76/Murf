@@ -1,6 +1,7 @@
 // Windows Terminal adapter.
 
 use crate::color::{material_ansi, semantic_ansi, AnsiMode};
+use crate::journal::Journal;
 use crate::palette::Palette;
 use anyhow::{Context, Result};
 use std::fs;
@@ -28,7 +29,11 @@ pub fn detect() -> Vec<PathBuf> {
         .collect()
 }
 
-pub fn apply(palette: &Palette, mode: AnsiMode) -> Result<Vec<PathBuf>> {
+pub fn apply(
+    palette: &Palette,
+    mode: AnsiMode,
+    journal: &mut Journal,
+) -> Result<Vec<PathBuf>> {
     let paths = detect();
     if paths.is_empty() {
         tracing::info!("Windows Terminal not found; skipping");
@@ -37,7 +42,7 @@ pub fn apply(palette: &Palette, mode: AnsiMode) -> Result<Vec<PathBuf>> {
 
     let scheme = build_scheme(palette, mode);
     for path in &paths {
-        apply_to_file(path, &scheme)
+        apply_to_file(path, &scheme, journal)
             .with_context(|| format!("applying to {}", path.display()))?;
     }
     Ok(paths)
@@ -93,14 +98,30 @@ fn build_scheme(p: &Palette, mode: AnsiMode) -> serde_json::Value {
     })
 }
 
-fn apply_to_file(path: &Path, scheme: &serde_json::Value) -> Result<()> {
+fn apply_to_file(
+    path: &Path,
+    scheme: &serde_json::Value,
+    journal: &mut Journal,
+) -> Result<()> {
     let backup = path.with_extension("json.murf-bak");
+    let temp = path.with_extension("json.murf.tmp");
+
+    // Journal the write before doing anything.
+    let entry = journal.record(
+        "windows_terminal",
+        path,
+        Some(&backup),
+        Some(&temp),
+    )?;
+
+    // Backup once, never overwritten.
     if !backup.exists() {
         fs::copy(path, &backup)
             .with_context(|| format!("backing up to {}", backup.display()))?;
         tracing::info!(backup = %backup.display(), "backup created");
     }
 
+    // Read, modify, stage to temp.
     let text = fs::read_to_string(path)
         .with_context(|| format!("reading {}", path.display()))?;
     let mut settings: serde_json::Value = serde_json::from_str(&text)
@@ -144,8 +165,14 @@ fn apply_to_file(path: &Path, scheme: &serde_json::Value) -> Result<()> {
     settings["profiles"]["defaults"]["colorScheme"] = serde_json::json!("Murf");
 
     let new_text = serde_json::to_string_pretty(&settings)?;
-    fs::write(path, new_text)
-        .with_context(|| format!("writing {}", path.display()))?;
+    fs::write(&temp, new_text)
+        .with_context(|| format!("writing temp {}", temp.display()))?;
+
+    // Rename temp over target.
+    fs::rename(&temp, path)
+        .with_context(|| format!("renaming {} -> {}", temp.display(), path.display()))?;
+
+    journal.mark_done(entry)?;
 
     tracing::info!(path = %path.display(), "wrote Windows Terminal settings");
     Ok(())

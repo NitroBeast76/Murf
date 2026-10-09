@@ -1,8 +1,9 @@
-// Murf entry point. v0.2 step 3: ANSI contrast enforcement.
+// Murf entry point. v0.2 step 4: journal + recovery.
 
 mod adapters;
 mod color;
 mod config;
+mod journal;
 mod matugen;
 mod palette;
 mod watcher;
@@ -61,10 +62,6 @@ fn ansi_mode_from_str(s: &str) -> AnsiMode {
     }
 }
 
-fn contrast(a: &str, b: &str) -> f32 {
-    color::contrast_ratio(a, b).unwrap_or(0.0)
-}
-
 fn write_palette_dump(
     wallpaper: &str,
     palette: &palette::Palette,
@@ -87,7 +84,7 @@ fn write_palette_dump(
     let bg      = palette.hex_or("background", "#000000");
     let sem = color::semantic_ansi(&primary, &error, &bg, palette.is_dark);
 
-    let ratio = |hex: &str| -> f64 { contrast(hex, &bg) as f64 };
+    let ratio = |hex: &str| -> f64 { color::contrast_ratio(hex, &bg).unwrap_or(0.0) as f64 };
 
     let doc = serde_json::json!({
         "wallpaper": wallpaper,
@@ -106,17 +103,14 @@ fn write_palette_dump(
             "brightBlue": sem.bright_blue, "brightPurple": sem.bright_purple,
         },
         "ansi_contrast": {
-            "red":          ratio(&sem.red),
-            "yellow":       ratio(&sem.yellow),
-            "green":        ratio(&sem.green),
-            "cyan":         ratio(&sem.cyan),
-            "blue":         ratio(&sem.blue),
-            "purple":       ratio(&sem.purple),
-            "brightRed":    ratio(&sem.bright_red),
+            "red": ratio(&sem.red), "yellow": ratio(&sem.yellow),
+            "green": ratio(&sem.green), "cyan": ratio(&sem.cyan),
+            "blue": ratio(&sem.blue), "purple": ratio(&sem.purple),
+            "brightRed": ratio(&sem.bright_red),
             "brightYellow": ratio(&sem.bright_yellow),
-            "brightGreen":  ratio(&sem.bright_green),
-            "brightCyan":   ratio(&sem.bright_cyan),
-            "brightBlue":   ratio(&sem.bright_blue),
+            "brightGreen": ratio(&sem.bright_green),
+            "brightCyan": ratio(&sem.bright_cyan),
+            "brightBlue": ratio(&sem.bright_blue),
             "brightPurple": ratio(&sem.bright_purple),
         },
     });
@@ -147,21 +141,45 @@ fn run_apply(wallpaper: &str, cfg: &config::Config) {
         "palette parsed"
     );
 
+    // Palette dump is Murf's own state; not journaled.
     match write_palette_dump(wallpaper, &palette, cfg) {
         Ok(path) => tracing::info!(path = %path.display(), "palette dump written"),
         Err(e) => tracing::warn!(error = %e, "failed to write palette dump"),
     }
 
     let ansi_mode = ansi_mode_from_str(&cfg.palette.ansi_mapping);
-    match adapters::windows_terminal::apply(&palette, ansi_mode) {
+
+    // Adapter writes are journaled.
+    let mut j = match journal::Journal::begin() {
+        Ok(j) => j,
+        Err(e) => {
+            tracing::error!(error = %e, "could not begin journal");
+            return;
+        }
+    };
+
+    match adapters::windows_terminal::apply(&palette, ansi_mode, &mut j) {
         Ok(paths) if paths.is_empty() => {
             tracing::warn!("no Windows Terminal config found");
+            let _ = j.commit();
         }
         Ok(paths) => {
             tracing::info!(count = paths.len(), "adapter applied");
+            if let Err(e) = j.commit() {
+                tracing::error!(error = %e, "journal commit failed");
+            }
         }
         Err(e) => {
-            tracing::error!(error = %e, "adapter failed");
+            tracing::error!(error = %e, "adapter failed; rolling back");
+            // Journal is left on disk. Next startup will roll back.
+            // For immediate feedback, attempt recovery now.
+            match journal::recover() {
+                Ok(journal::RecoveryResult::RolledBack { restored, failed }) => {
+                    tracing::warn!(restored, failed, "rolled back after adapter failure");
+                }
+                Ok(other) => tracing::warn!(?other, "recovery result"),
+                Err(e) => tracing::error!(error = %e, "recovery failed"),
+            }
         }
     }
 }
@@ -178,6 +196,26 @@ fn main() -> Result<()> {
         .init();
 
     tracing::info!("murf starting");
+
+    // Startup recovery: if a prior apply was interrupted, restore now.
+    match journal::recover() {
+        Ok(journal::RecoveryResult::NoJournal) => {}
+        Ok(journal::RecoveryResult::AlreadyCommitted) => {
+            tracing::info!("previous apply was committed; journal cleaned up");
+        }
+        Ok(journal::RecoveryResult::RolledBack { restored, failed }) => {
+            tracing::warn!(restored, failed, "rolled back interrupted apply");
+        }
+        Ok(journal::RecoveryResult::GaveUp { attempts }) => {
+            tracing::error!(
+                attempts,
+                "journal gave up after repeated rollback failures; manual restore required"
+            );
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "journal recovery failed");
+        }
+    }
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
