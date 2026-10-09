@@ -1,11 +1,13 @@
-// Murf entry point. v0.1: tray + watcher + matugen + WT adapter + palette dump.
+// Murf entry point. v0.1 with semantic ANSI mode.
 
 mod adapters;
+mod color;
 mod matugen;
 mod palette;
 mod watcher;
 
 use anyhow::Result;
+use color::AnsiMode;
 use std::fs;
 use std::path::PathBuf;
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
@@ -17,6 +19,7 @@ use tray_icon::{
 const MODE: &str = "smart";
 const SCHEME_TYPE: &str = "scheme-tonal-spot";
 const CONTRAST: f32 = 0.0;
+const ANSI_MODE: AnsiMode = AnsiMode::Semantic;
 
 enum UserEvent {
     Menu(MenuEvent),
@@ -55,10 +58,7 @@ fn make_icon() -> Icon {
     Icon::from_rgba(rgba, size, size).expect("valid icon")
 }
 
-fn write_palette_dump(
-    wallpaper: &str,
-    palette: &palette::Palette,
-) -> Result<PathBuf> {
+fn write_palette_dump(wallpaper: &str, palette: &palette::Palette) -> Result<PathBuf> {
     let Some(local) = std::env::var_os("LOCALAPPDATA") else {
         anyhow::bail!("LOCALAPPDATA not set");
     };
@@ -71,12 +71,27 @@ fn write_palette_dump(
         roles.insert(k.clone(), serde_json::Value::String(v.hex.clone()));
     }
 
+    let primary = palette.hex_or("primary", "#808080");
+    let error   = palette.hex_or("error",   "#ff0000");
+    let sem = color::semantic_ansi(&primary, &error);
+
     let doc = serde_json::json!({
         "wallpaper": wallpaper,
         "mode": MODE,
         "scheme_type": SCHEME_TYPE,
         "contrast": CONTRAST,
+        "ansi_mapping": match ANSI_MODE {
+            AnsiMode::Semantic => "semantic",
+            AnsiMode::Material => "material",
+        },
         "roles": roles,
+        "ansi_semantic": {
+            "red": sem.red, "yellow": sem.yellow, "green": sem.green,
+            "cyan": sem.cyan, "blue": sem.blue, "purple": sem.purple,
+            "brightRed": sem.bright_red, "brightYellow": sem.bright_yellow,
+            "brightGreen": sem.bright_green, "brightCyan": sem.bright_cyan,
+            "brightBlue": sem.bright_blue, "brightPurple": sem.bright_purple,
+        },
     });
 
     fs::write(&path, serde_json::to_string_pretty(&doc)?)?;
@@ -101,7 +116,7 @@ fn run_apply(wallpaper: &str) {
         Err(e) => tracing::warn!(error = %e, "failed to write palette dump"),
     }
 
-    match adapters::windows_terminal::apply(&palette) {
+    match adapters::windows_terminal::apply(&palette, ANSI_MODE) {
         Ok(paths) if paths.is_empty() => {
             tracing::warn!("no Windows Terminal config found");
         }

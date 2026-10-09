@@ -1,10 +1,12 @@
 // Windows Terminal adapter.
 //
 // Injects a "Murf" scheme into settings.json and forces
-// profiles.defaults.colorScheme = "Murf". The user's previous
-// colorScheme value is recorded in a sidecar file so reset can
-// restore it (v0.2).
+// profiles.defaults.colorScheme = "Murf".
+//
+// ANSI slots are derived per the mode passed in (semantic / material).
+// Non-ANSI slots always come from M3 roles.
 
+use crate::color::{material_ansi, semantic_ansi, AnsiMode};
 use crate::palette::Palette;
 use anyhow::{Context, Result};
 use std::fs;
@@ -32,14 +34,14 @@ pub fn detect() -> Vec<PathBuf> {
         .collect()
 }
 
-pub fn apply(palette: &Palette) -> Result<Vec<PathBuf>> {
+pub fn apply(palette: &Palette, mode: AnsiMode) -> Result<Vec<PathBuf>> {
     let paths = detect();
     if paths.is_empty() {
         tracing::info!("Windows Terminal not found; skipping");
         return Ok(vec![]);
     }
 
-    let scheme = build_scheme(palette);
+    let scheme = build_scheme(palette, mode);
     for path in &paths {
         apply_to_file(path, &scheme)
             .with_context(|| format!("applying to {}", path.display()))?;
@@ -47,35 +49,56 @@ pub fn apply(palette: &Palette) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-fn build_scheme(p: &Palette) -> serde_json::Value {
+fn build_scheme(p: &Palette, mode: AnsiMode) -> serde_json::Value {
     use serde_json::json;
+
+    let primary = p.hex_or("primary", "#808080");
+    let error   = p.hex_or("error",   "#ff0000");
+
+    let ansi = match mode {
+        AnsiMode::Semantic => semantic_ansi(&primary, &error),
+        AnsiMode::Material => material_ansi(
+            &error,
+            &p.hex_or("tertiary",              "#00ff00"),
+            &p.hex_or("secondary",             "#ffff00"),
+            &primary,
+            &p.hex_or("tertiary_container",    "#ff00ff"),
+            &p.hex_or("secondary_container",   "#00ffff"),
+            &error,
+            &p.hex_or("tertiary",              "#00ff00"),
+            &p.hex_or("secondary",             "#ffff00"),
+            &primary,
+            &p.hex_or("tertiary_container",    "#ff00ff"),
+            &p.hex_or("secondary_container",   "#00ffff"),
+        ),
+    };
+
     json!({
         "name": "Murf",
-        "background":          p.hex_or("surface",                   "#000000"),
-        "foreground":          p.hex_or("on_surface",                "#ffffff"),
-        "cursorColor":         p.hex_or("primary",                   "#ffffff"),
-        "selectionBackground": p.hex_or("surface_container_high",    "#333333"),
-        "black":               p.hex_or("surface_container_lowest",  "#000000"),
-        "red":                 p.hex_or("error",                     "#ff0000"),
-        "green":               p.hex_or("tertiary",                  "#00ff00"),
-        "yellow":              p.hex_or("secondary",                 "#ffff00"),
-        "blue":                p.hex_or("primary",                   "#0000ff"),
-        "purple":              p.hex_or("tertiary_container",        "#ff00ff"),
-        "cyan":                p.hex_or("secondary_container",       "#00ffff"),
-        "white":               p.hex_or("on_surface",                "#ffffff"),
-        "brightBlack":         p.hex_or("surface_container_low",     "#333333"),
-        "brightRed":           p.hex_or("error",                     "#ff0000"),
-        "brightGreen":         p.hex_or("tertiary",                  "#00ff00"),
-        "brightYellow":        p.hex_or("secondary",                 "#ffff00"),
-        "brightBlue":          p.hex_or("primary",                   "#0000ff"),
-        "brightPurple":        p.hex_or("tertiary_container",        "#ff00ff"),
-        "brightCyan":          p.hex_or("secondary_container",       "#00ffff"),
-        "brightWhite":         p.hex_or("on_background",             "#ffffff"),
+        "background":          p.hex_or("surface",                  "#000000"),
+        "foreground":          p.hex_or("on_surface",               "#ffffff"),
+        "cursorColor":         p.hex_or("primary",                  "#ffffff"),
+        "selectionBackground": p.hex_or("surface_container_high",   "#333333"),
+        "black":               p.hex_or("surface_container_lowest", "#000000"),
+        "red":                 ansi.red,
+        "green":               ansi.green,
+        "yellow":              ansi.yellow,
+        "blue":                ansi.blue,
+        "purple":              ansi.purple,
+        "cyan":                ansi.cyan,
+        "white":               p.hex_or("on_surface",               "#ffffff"),
+        "brightBlack":         p.hex_or("surface_container_low",    "#333333"),
+        "brightRed":           ansi.bright_red,
+        "brightGreen":         ansi.bright_green,
+        "brightYellow":        ansi.bright_yellow,
+        "brightBlue":          ansi.bright_blue,
+        "brightPurple":        ansi.bright_purple,
+        "brightCyan":          ansi.bright_cyan,
+        "brightWhite":         p.hex_or("on_background",            "#ffffff"),
     })
 }
 
 fn apply_to_file(path: &Path, scheme: &serde_json::Value) -> Result<()> {
-    // Backup once, never overwritten.
     let backup = path.with_extension("json.murf-bak");
     if !backup.exists() {
         fs::copy(path, &backup)
@@ -88,7 +111,6 @@ fn apply_to_file(path: &Path, scheme: &serde_json::Value) -> Result<()> {
     let mut settings: serde_json::Value = serde_json::from_str(&text)
         .with_context(|| format!("parsing {} as JSON", path.display()))?;
 
-    // schemes[]
     if settings.get("schemes").is_none() {
         settings["schemes"] = serde_json::json!([]);
     }
@@ -108,7 +130,6 @@ fn apply_to_file(path: &Path, scheme: &serde_json::Value) -> Result<()> {
         schemes.push(scheme.clone());
     }
 
-    // profiles.defaults.colorScheme = "Murf", always.
     if settings.get("profiles").is_none() {
         settings["profiles"] = serde_json::json!({});
     }
@@ -125,8 +146,7 @@ fn apply_to_file(path: &Path, scheme: &serde_json::Value) -> Result<()> {
             tracing::info!(previous = %prev, "overriding user colorScheme");
         }
     }
-    settings["profiles"]["defaults"]["colorScheme"] =
-        serde_json::json!("Murf");
+    settings["profiles"]["defaults"]["colorScheme"] = serde_json::json!("Murf");
 
     let new_text = serde_json::to_string_pretty(&settings)?;
     fs::write(path, new_text)
