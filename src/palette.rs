@@ -1,4 +1,4 @@
-﻿// Palette: M3 roles parsed from matugen JSON.
+// Palette: M3 roles parsed from matugen JSON.
 
 use std::collections::BTreeMap;
 
@@ -10,6 +10,8 @@ pub struct Color {
 #[derive(Debug, Clone)]
 pub struct Palette {
     pub roles: BTreeMap<String, Color>,
+    /// Whether matugen chose a dark palette (light text on dark bg).
+    pub is_dark: bool,
 }
 
 impl Palette {

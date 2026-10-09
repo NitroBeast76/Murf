@@ -1,4 +1,4 @@
-﻿// Matugen bridge. See docs/matugen-contract.md for the verified invocation.
+// Matugen bridge. See docs/matugen-contract.md for the verified invocation.
 
 use crate::palette::{Color, Palette};
 use anyhow::{anyhow, Context, Result};
@@ -65,21 +65,31 @@ fn parse_palette(json: &str) -> Result<Palette> {
         return Err(anyhow!("matugen JSON contained no usable role colors"));
     }
 
-    Ok(Palette { roles })
+    // Prefer matugen's own is_dark_mode field. Fallback: infer from
+    // the background role's perceptual lightness.
+    let is_dark = match v.get("is_dark_mode").and_then(|b| b.as_bool()) {
+        Some(b) => b,
+        None => infer_is_dark(&roles),
+    };
+
+    Ok(Palette { roles, is_dark })
+}
+
+fn infer_is_dark(roles: &BTreeMap<String, Color>) -> bool {
+    let Some(bg) = roles.get("background").map(|c| c.hex.as_str()) else {
+        return true;
+    };
+    match crate::color::hex_to_oklch(bg) {
+        Some(c) => c.l < 0.5,
+        None => true,
+    }
 }
 
 /// Current wallpaper path from the Windows registry.
 pub fn current_wallpaper() -> Option<String> {
     use std::process::Command;
-    // Read HKCU\Control Panel\Desktop\Wallpaper via reg.exe.
-    // Avoids the `windows` crate dependency for this one call.
     let out = Command::new("reg")
-        .args([
-            "query",
-            "HKCU\\Control Panel\\Desktop",
-            "/v",
-            "Wallpaper",
-        ])
+        .args(["query", "HKCU\\Control Panel\\Desktop", "/v", "Wallpaper"])
         .output()
         .ok()?;
     if !out.status.success() {

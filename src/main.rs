@@ -1,4 +1,4 @@
-// Murf entry point. v0.2 step 1: config file.
+// Murf entry point. v0.2 step 2: is_dark plumbing.
 
 mod adapters;
 mod color;
@@ -80,7 +80,7 @@ fn write_palette_dump(
 
     let primary = palette.hex_or("primary", "#808080");
     let error   = palette.hex_or("error",   "#ff0000");
-    let sem = color::semantic_ansi(&primary, &error);
+    let sem = color::semantic_ansi(&primary, &error, palette.is_dark);
 
     let doc = serde_json::json!({
         "wallpaper": wallpaper,
@@ -88,6 +88,7 @@ fn write_palette_dump(
         "scheme_type": cfg.palette.scheme_type,
         "contrast": cfg.palette.contrast,
         "ansi_mapping": cfg.palette.ansi_mapping,
+        "is_dark": palette.is_dark,
         "roles": roles,
         "ansi_semantic": {
             "red": sem.red, "yellow": sem.yellow, "green": sem.green,
@@ -118,7 +119,11 @@ fn run_apply(wallpaper: &str, cfg: &config::Config) {
         }
     };
 
-    tracing::info!(roles = palette.roles.len(), "palette parsed");
+    tracing::info!(
+        roles = palette.roles.len(),
+        is_dark = palette.is_dark,
+        "palette parsed"
+    );
 
     match write_palette_dump(wallpaper, &palette, cfg) {
         Ok(path) => tracing::info!(path = %path.display(), "palette dump written"),
@@ -140,8 +145,6 @@ fn run_apply(wallpaper: &str, cfg: &config::Config) {
 }
 
 fn main() -> Result<()> {
-    // Load config first so log_level is available, then re-init
-    // the subscriber with the configured level.
     let cfg = config::load_or_default()?;
 
     let default_level = cfg.general.log_level.clone();

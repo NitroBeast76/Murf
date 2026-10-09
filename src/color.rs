@@ -4,10 +4,8 @@
 // (https://bottosson.github.io/posts/oklab/).
 //
 // Semantic ANSI derivation uses absolute target hues in OKLCH,
-// blended partway toward the seed's hue so the result stays
-// connected to the wallpaper. Absolute targets guarantee the
-// color lands in the correct perceptual neighborhood regardless
-// of the seed's hue.
+// blended partway toward the seed's hue. Lightness tables differ
+// for dark and light palettes so slots stay readable either way.
 
 pub struct Oklch {
     pub l: f32,
@@ -80,10 +78,13 @@ fn linear_to_srgb(c: f32) -> f32 {
     if c <= 0.0031308 { 12.92 * c } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
 }
 
+/// Clamp so high-L bright variants don't desaturate to white.
+const BRIGHTEN_CEILING: f32 = 0.92;
+
 pub fn brighten(hex: &str, delta: f32) -> String {
     match hex_to_oklch(hex) {
         Some(mut c) => {
-            c.l = (c.l + delta).clamp(0.0, 1.0);
+            c.l = (c.l + delta).clamp(0.0, BRIGHTEN_CEILING);
             oklch_to_hex(&c)
         }
         None => hex.to_string(),
@@ -111,16 +112,32 @@ pub struct AnsiColors {
     pub bright_purple: String,
 }
 
-/// Absolute OKLCH targets for canonical ANSI hues.
 const TARGET_YELLOW: f32 = 95.0;
 const TARGET_GREEN:  f32 = 145.0;
 const TARGET_CYAN:   f32 = 195.0;
 const TARGET_BLUE:   f32 = 250.0;
 const TARGET_PURPLE: f32 = 305.0;
 
-/// How much of the seed's hue to pull each target toward.
-/// 0.0 = pure canonical, 1.0 = fully seed-tinted.
 const SEED_PULL: f32 = 0.20;
+
+/// (lightness, chroma) per slot for dark palettes.
+const DARK_TABLE: [(f32, f32); 5] = [
+    (0.78, 0.15), // yellow
+    (0.62, 0.17), // green
+    (0.70, 0.13), // cyan
+    (0.55, 0.16), // blue
+    (0.55, 0.18), // purple
+];
+
+/// (lightness, chroma) per slot for light palettes. Lower L to keep
+/// contrast against near-white backgrounds.
+const LIGHT_TABLE: [(f32, f32); 5] = [
+    (0.55, 0.16), // yellow
+    (0.45, 0.17), // green
+    (0.48, 0.14), // cyan
+    (0.40, 0.16), // blue
+    (0.40, 0.18), // purple
+];
 
 fn shortest_hue_delta(from: f32, to: f32) -> f32 {
     let d = (to - from).rem_euclid(360.0);
@@ -135,26 +152,26 @@ fn blend_toward_target(seed_h: f32, target: f32, pull: f32) -> f32 {
 /// Derive ANSI slots from the seed's hue.
 ///
 /// Each slot uses an absolute OKLCH target hue, blended `SEED_PULL`
-/// toward the seed's hue. This keeps the color in its recognizable
-/// neighborhood while tinting it toward the wallpaper.
+/// toward the seed's hue. Lightness comes from `DARK_TABLE` or
+/// `LIGHT_TABLE` depending on the palette's mode.
 ///
 /// `red` is not derived; it uses `error` directly.
-pub fn semantic_ansi(seed_hex: &str, error_hex: &str) -> AnsiColors {
+pub fn semantic_ansi(seed_hex: &str, error_hex: &str, is_dark: bool) -> AnsiColors {
     let seed = hex_to_oklch(seed_hex).unwrap_or(Oklch { l: 0.5, c: 0.1, h: 0.0 });
     let h = seed.h;
 
-    let make = |target: f32, chroma: f32, l: f32| -> String {
+    let table = if is_dark { &DARK_TABLE } else { &LIGHT_TABLE };
+
+    let make = |target: f32, l: f32, c: f32| -> String {
         let hue = blend_toward_target(h, target, SEED_PULL);
-        oklch_to_hex(&Oklch { l, c: chroma, h: hue })
+        oklch_to_hex(&Oklch { l, c, h: hue })
     };
 
-    // Lightness chosen per hue so each color reads clearly on both
-    // light and dark backgrounds.
-    let yellow = make(TARGET_YELLOW, 0.15, 0.78);
-    let green  = make(TARGET_GREEN,  0.17, 0.62);
-    let cyan   = make(TARGET_CYAN,   0.13, 0.70);
-    let blue   = make(TARGET_BLUE,   0.16, 0.55);
-    let purple = make(TARGET_PURPLE, 0.18, 0.55);
+    let yellow = make(TARGET_YELLOW, table[0].0, table[0].1);
+    let green  = make(TARGET_GREEN,  table[1].0, table[1].1);
+    let cyan   = make(TARGET_CYAN,   table[2].0, table[2].1);
+    let blue   = make(TARGET_BLUE,   table[3].0, table[3].1);
+    let purple = make(TARGET_PURPLE, table[4].0, table[4].1);
 
     AnsiColors {
         red: error_hex.to_string(),

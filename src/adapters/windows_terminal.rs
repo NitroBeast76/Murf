@@ -1,10 +1,4 @@
 // Windows Terminal adapter.
-//
-// Injects a "Murf" scheme into settings.json and forces
-// profiles.defaults.colorScheme = "Murf".
-//
-// ANSI slots are derived per the mode passed in (semantic / material).
-// Non-ANSI slots always come from M3 roles.
 
 use crate::color::{material_ansi, semantic_ansi, AnsiMode};
 use crate::palette::Palette;
@@ -56,7 +50,7 @@ fn build_scheme(p: &Palette, mode: AnsiMode) -> serde_json::Value {
     let error   = p.hex_or("error",   "#ff0000");
 
     let ansi = match mode {
-        AnsiMode::Semantic => semantic_ansi(&primary, &error),
+        AnsiMode::Semantic => semantic_ansi(&primary, &error, p.is_dark),
         AnsiMode::Material => material_ansi(
             &error,
             &p.hex_or("tertiary",              "#00ff00"),
