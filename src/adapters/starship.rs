@@ -1,7 +1,9 @@
 // Starship adapter.
 //
 // Injects a [palettes.murf] block into starship.toml between markers,
-// and sets `palette = "murf"` at the root level.
+// and forces the root-level `palette = "murf"` setting. The user's
+// original palette name is not preserved in a separate file; the
+// journaled backup of starship.toml handles restoration.
 
 use super::{home_dir, inject_section, AppAdapter, ReloadOutcome, WriteOp};
 use crate::palette::Palette;
@@ -12,6 +14,7 @@ use std::path::PathBuf;
 pub struct Starship;
 
 const MARKER: &str = "# <murf>";
+const PALETTE_NAME: &str = "murf";
 
 impl Starship {
     fn config_path() -> Option<PathBuf> {
@@ -37,42 +40,79 @@ impl AppAdapter for Starship {
         let text = fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
 
+        // Inject/refresh the [palettes.murf] block.
         let body = format!(
-            "[palettes.murf]\n\
-             primary   = \"{}\"\n\
-             secondary = \"{}\"\n\
-             tertiary  = \"{}\"\n\
-             surface   = \"{}\"\n\
-             on_surface = \"{}\"\n\
-             error     = \"{}\"",
-            palette.hex_or("primary", "#ffffff"),
-            palette.hex_or("secondary", "#cccccc"),
-            palette.hex_or("tertiary", "#aaaaaa"),
-            palette.hex_or("surface", "#000000"),
-            palette.hex_or("on_surface", "#ffffff"),
-            palette.hex_or("error", "#ff0000"),
+            "[palettes.{name}]\n\
+             primary    = \"{primary}\"\n\
+             secondary  = \"{secondary}\"\n\
+             tertiary   = \"{tertiary}\"\n\
+             surface    = \"{surface}\"\n\
+             on_surface = \"{on_surface}\"\n\
+             error      = \"{error}\"",
+            name = PALETTE_NAME,
+            primary    = palette.hex_or("primary", "#ffffff"),
+            secondary  = palette.hex_or("secondary", "#cccccc"),
+            tertiary   = palette.hex_or("tertiary", "#aaaaaa"),
+            surface    = palette.hex_or("surface", "#000000"),
+            on_surface = palette.hex_or("on_surface", "#ffffff"),
+            error      = palette.hex_or("error", "#ff0000"),
         );
+        let with_block = inject_section(&text, MARKER, &body);
 
-        let mut new_text = inject_section(&text, MARKER, &body);
-
-        // Ensure root-level `palette = "murf"`.
-        let has_root_palette = new_text.lines().any(|l| {
-            let t = l.trim();
-            t.starts_with("palette") && t.contains("=") && !t.starts_with("palettes")
-        });
-
-        if !has_root_palette {
-            new_text = format!("palette = \"murf\"\n{}", new_text);
-        }
+        // Force root-level `palette = "murf"`.
+        let final_text = set_root_palette(&with_block, PALETTE_NAME);
 
         Ok(vec![WriteOp {
             adapter: "starship",
             target: path,
-            content: new_text,
+            content: final_text,
         }])
     }
 
     fn reload(&self) -> Result<ReloadOutcome> {
         Ok(ReloadOutcome { live_reload: 1, ..Default::default() })
     }
+}
+
+/// Find the root-level `palette = ...` line and replace its value with
+/// `palette = "murf"`. If no such line exists, insert one at the top.
+/// Section headers (lines starting with `[`) disable the search for
+/// the rest of the file, because keys inside a section are not
+/// root-level.
+fn set_root_palette(text: &str, name: &str) -> String {
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    let mut found = false;
+    let mut in_section = false;
+
+    for line in lines.iter_mut() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with('[') {
+            in_section = true;
+            continue;
+        }
+        if in_section {
+            continue;
+        }
+
+        // Root-level key.
+        if let Some(rest) = trimmed.strip_prefix("palette") {
+            if rest.trim_start().starts_with('=') {
+                *line = format!("palette = \"{}\"", name);
+                found = true;
+                break;
+            }
+        }
+    }
+
+    if !found {
+        // Insert at the top, before the first line.
+        lines.insert(0, format!("palette = \"{}\"", name));
+    }
+
+    let mut out = lines.join("\n");
+    if text.ends_with('\n') {
+        out.push('\n');
+    }
+    out
 }
