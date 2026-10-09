@@ -1,51 +1,73 @@
 // Windows Terminal adapter.
 
+use super::{AppAdapter, ReloadOutcome, WriteOp};
 use crate::color::{material_ansi, semantic_ansi, AnsiMode};
-use crate::journal::Journal;
 use crate::palette::Palette;
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-pub fn candidate_paths() -> Vec<PathBuf> {
-    let Some(local) = std::env::var_os("LOCALAPPDATA") else {
-        return vec![];
-    };
-    let base = PathBuf::from(local).join("Packages");
-    vec![
-        base.join("Microsoft.WindowsTerminal_8wekyb3d8bbwe")
-            .join("LocalState")
-            .join("settings.json"),
-        base.join("Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe")
-            .join("LocalState")
-            .join("settings.json"),
-    ]
+pub struct WindowsTerminal {
+    pub ansi_mode: AnsiMode,
 }
 
-pub fn detect() -> Vec<PathBuf> {
-    candidate_paths()
-        .into_iter()
-        .filter(|p| p.exists())
-        .collect()
+impl WindowsTerminal {
+    pub fn new(ansi_mode: AnsiMode) -> Self {
+        Self { ansi_mode }
+    }
+
+    fn candidate_paths() -> Vec<PathBuf> {
+        let Some(local) = std::env::var_os("LOCALAPPDATA") else {
+            return vec![];
+        };
+        let base = PathBuf::from(local).join("Packages");
+        vec![
+            base.join("Microsoft.WindowsTerminal_8wekyb3d8bbwe")
+                .join("LocalState")
+                .join("settings.json"),
+            base.join("Microsoft.WindowsTerminalPreview_8wekyb3d8bbwe")
+                .join("LocalState")
+                .join("settings.json"),
+        ]
+    }
 }
 
-pub fn apply(
-    palette: &Palette,
-    mode: AnsiMode,
-    journal: &mut Journal,
-) -> Result<Vec<PathBuf>> {
-    let paths = detect();
-    if paths.is_empty() {
-        tracing::info!("Windows Terminal not found; skipping");
-        return Ok(vec![]);
+impl AppAdapter for WindowsTerminal {
+    fn id(&self) -> &'static str { "windows_terminal" }
+    fn display_name(&self) -> &'static str { "Windows Terminal" }
+
+    fn detect(&self) -> Vec<PathBuf> {
+        Self::candidate_paths()
+            .into_iter()
+            .filter(|p| p.exists())
+            .collect()
     }
 
-    let scheme = build_scheme(palette, mode);
-    for path in &paths {
-        apply_to_file(path, &scheme, journal)
-            .with_context(|| format!("applying to {}", path.display()))?;
+    fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>> {
+        let paths = self.detect();
+        if paths.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let scheme = build_scheme(palette, self.ansi_mode);
+        let mut ops = Vec::new();
+
+        for path in paths {
+            let content = plan_file(&path, &scheme)
+                .with_context(|| format!("planning {}", path.display()))?;
+            ops.push(WriteOp {
+                adapter: "windows_terminal",
+                target: path,
+                content,
+            });
+        }
+        Ok(ops)
     }
-    Ok(paths)
+
+    fn reload(&self) -> Result<ReloadOutcome> {
+        // Windows Terminal watches its settings file.
+        Ok(ReloadOutcome { live_reload: 1, ..Default::default() })
+    }
 }
 
 fn build_scheme(p: &Palette, mode: AnsiMode) -> serde_json::Value {
@@ -98,30 +120,10 @@ fn build_scheme(p: &Palette, mode: AnsiMode) -> serde_json::Value {
     })
 }
 
-fn apply_to_file(
-    path: &Path,
+fn plan_file(
+    path: &std::path::Path,
     scheme: &serde_json::Value,
-    journal: &mut Journal,
-) -> Result<()> {
-    let backup = path.with_extension("json.murf-bak");
-    let temp = path.with_extension("json.murf.tmp");
-
-    // Journal the write before doing anything.
-    let entry = journal.record(
-        "windows_terminal",
-        path,
-        Some(&backup),
-        Some(&temp),
-    )?;
-
-    // Backup once, never overwritten.
-    if !backup.exists() {
-        fs::copy(path, &backup)
-            .with_context(|| format!("backing up to {}", backup.display()))?;
-        tracing::info!(backup = %backup.display(), "backup created");
-    }
-
-    // Read, modify, stage to temp.
+) -> Result<String> {
     let text = fs::read_to_string(path)
         .with_context(|| format!("reading {}", path.display()))?;
     let mut settings: serde_json::Value = serde_json::from_str(&text)
@@ -164,16 +166,5 @@ fn apply_to_file(
     }
     settings["profiles"]["defaults"]["colorScheme"] = serde_json::json!("Murf");
 
-    let new_text = serde_json::to_string_pretty(&settings)?;
-    fs::write(&temp, new_text)
-        .with_context(|| format!("writing temp {}", temp.display()))?;
-
-    // Rename temp over target.
-    fs::rename(&temp, path)
-        .with_context(|| format!("renaming {} -> {}", temp.display(), path.display()))?;
-
-    journal.mark_done(entry)?;
-
-    tracing::info!(path = %path.display(), "wrote Windows Terminal settings");
-    Ok(())
+    Ok(serde_json::to_string_pretty(&settings)?)
 }

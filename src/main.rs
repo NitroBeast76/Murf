@@ -1,4 +1,4 @@
-// Murf entry point. v0.2 step 4: journal + recovery.
+// Murf entry point. v0.2 step 5: adapter trait + plan/apply split.
 
 mod adapters;
 mod color;
@@ -8,6 +8,8 @@ mod matugen;
 mod palette;
 mod watcher;
 
+use adapters::AppAdapter;
+use adapters::windows_terminal::WindowsTerminal;
 use anyhow::Result;
 use color::AnsiMode;
 use std::fs;
@@ -141,15 +143,31 @@ fn run_apply(wallpaper: &str, cfg: &config::Config) {
         "palette parsed"
     );
 
-    // Palette dump is Murf's own state; not journaled.
     match write_palette_dump(wallpaper, &palette, cfg) {
         Ok(path) => tracing::info!(path = %path.display(), "palette dump written"),
         Err(e) => tracing::warn!(error = %e, "failed to write palette dump"),
     }
 
     let ansi_mode = ansi_mode_from_str(&cfg.palette.ansi_mapping);
+    let adapter = WindowsTerminal::new(ansi_mode);
 
-    // Adapter writes are journaled.
+    // Plan: pure, no writes.
+    let ops = match adapter.plan(&palette) {
+        Ok(o) => o,
+        Err(e) => {
+            tracing::error!(error = %e, "planning failed");
+            return;
+        }
+    };
+
+    if ops.is_empty() {
+        tracing::warn!("no writes to perform");
+        return;
+    }
+
+    tracing::info!(count = ops.len(), "planned writes");
+
+    // Apply under journal.
     let mut j = match journal::Journal::begin() {
         Ok(j) => j,
         Err(e) => {
@@ -158,24 +176,26 @@ fn run_apply(wallpaper: &str, cfg: &config::Config) {
         }
     };
 
-    match adapters::windows_terminal::apply(&palette, ansi_mode, &mut j) {
-        Ok(paths) if paths.is_empty() => {
-            tracing::warn!("no Windows Terminal config found");
-            let _ = j.commit();
-        }
-        Ok(paths) => {
-            tracing::info!(count = paths.len(), "adapter applied");
+    match adapters::apply_ops(&mut j, &ops) {
+        Ok(()) => {
             if let Err(e) = j.commit() {
                 tracing::error!(error = %e, "journal commit failed");
+                return;
+            }
+            match adapter.reload() {
+                Ok(outcome) => tracing::info!(
+                    live = outcome.live_reload,
+                    restarted = outcome.restarted,
+                    "reloaded"
+                ),
+                Err(e) => tracing::error!(error = %e, "reload failed"),
             }
         }
         Err(e) => {
-            tracing::error!(error = %e, "adapter failed; rolling back");
-            // Journal is left on disk. Next startup will roll back.
-            // For immediate feedback, attempt recovery now.
+            tracing::error!(error = %e, "apply failed; recovering");
             match journal::recover() {
                 Ok(journal::RecoveryResult::RolledBack { restored, failed }) => {
-                    tracing::warn!(restored, failed, "rolled back after adapter failure");
+                    tracing::warn!(restored, failed, "rolled back");
                 }
                 Ok(other) => tracing::warn!(?other, "recovery result"),
                 Err(e) => tracing::error!(error = %e, "recovery failed"),
@@ -197,7 +217,6 @@ fn main() -> Result<()> {
 
     tracing::info!("murf starting");
 
-    // Startup recovery: if a prior apply was interrupted, restore now.
     match journal::recover() {
         Ok(journal::RecoveryResult::NoJournal) => {}
         Ok(journal::RecoveryResult::AlreadyCommitted) => {
@@ -207,10 +226,7 @@ fn main() -> Result<()> {
             tracing::warn!(restored, failed, "rolled back interrupted apply");
         }
         Ok(journal::RecoveryResult::GaveUp { attempts }) => {
-            tracing::error!(
-                attempts,
-                "journal gave up after repeated rollback failures; manual restore required"
-            );
+            tracing::error!(attempts, "journal gave up; manual restore required");
         }
         Err(e) => {
             tracing::error!(error = %e, "journal recovery failed");
