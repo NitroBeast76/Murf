@@ -1,4 +1,4 @@
-// Murf entry point. v0.2 step 5: adapter trait + plan/apply split.
+// Murf entry point. v0.2 step 6: Cava, Chronoterm, Starship adapters.
 
 mod adapters;
 mod color;
@@ -8,8 +8,10 @@ mod matugen;
 mod palette;
 mod watcher;
 
-use adapters::AppAdapter;
-use adapters::windows_terminal::WindowsTerminal;
+use adapters::{
+    cava::Cava, chronoterm::Chronoterm, starship::Starship,
+    windows_terminal::WindowsTerminal, AppAdapter,
+};
 use anyhow::Result;
 use color::AnsiMode;
 use std::fs;
@@ -64,6 +66,16 @@ fn ansi_mode_from_str(s: &str) -> AnsiMode {
     }
 }
 
+fn build_adapters(cfg: &config::Config) -> Vec<Box<dyn AppAdapter>> {
+    let ansi_mode = ansi_mode_from_str(&cfg.palette.ansi_mapping);
+    vec![
+        Box::new(WindowsTerminal::new(ansi_mode)),
+        Box::new(Chronoterm),
+        Box::new(Cava),
+        Box::new(Starship),
+    ]
+}
+
 fn write_palette_dump(
     wallpaper: &str,
     palette: &palette::Palette,
@@ -85,7 +97,6 @@ fn write_palette_dump(
     let error   = palette.hex_or("error",   "#ff0000");
     let bg      = palette.hex_or("background", "#000000");
     let sem = color::semantic_ansi(&primary, &error, &bg, palette.is_dark);
-
     let ratio = |hex: &str| -> f64 { color::contrast_ratio(hex, &bg).unwrap_or(0.0) as f64 };
 
     let doc = serde_json::json!({
@@ -148,26 +159,43 @@ fn run_apply(wallpaper: &str, cfg: &config::Config) {
         Err(e) => tracing::warn!(error = %e, "failed to write palette dump"),
     }
 
-    let ansi_mode = ansi_mode_from_str(&cfg.palette.ansi_mapping);
-    let adapter = WindowsTerminal::new(ansi_mode);
+    let adapters = build_adapters(cfg);
 
-    // Plan: pure, no writes.
-    let ops = match adapter.plan(&palette) {
-        Ok(o) => o,
-        Err(e) => {
-            tracing::error!(error = %e, "planning failed");
-            return;
+    // Plan phase: pure, no writes.
+    let mut all_ops = Vec::new();
+    for a in &adapters {
+        let detected = a.detect();
+        if detected.is_empty() {
+            tracing::debug!(adapter = a.id(), "not installed; skipping");
+            continue;
         }
-    };
+        match a.plan(&palette) {
+            Ok(ops) => {
+                if !ops.is_empty() {
+                    tracing::info!(
+                        adapter = a.id(),
+                        ops = ops.len(),
+                        "planned"
+                    );
+                }
+                all_ops.extend(ops);
+            }
+            Err(e) => tracing::error!(
+                adapter = a.id(),
+                error = %e,
+                "planning failed"
+            ),
+        }
+    }
 
-    if ops.is_empty() {
+    if all_ops.is_empty() {
         tracing::warn!("no writes to perform");
         return;
     }
 
-    tracing::info!(count = ops.len(), "planned writes");
+    tracing::info!(count = all_ops.len(), "planned writes");
 
-    // Apply under journal.
+    // Apply phase: journaled.
     let mut j = match journal::Journal::begin() {
         Ok(j) => j,
         Err(e) => {
@@ -176,19 +204,28 @@ fn run_apply(wallpaper: &str, cfg: &config::Config) {
         }
     };
 
-    match adapters::apply_ops(&mut j, &ops) {
+    match adapters::apply_ops(&mut j, &all_ops) {
         Ok(()) => {
             if let Err(e) = j.commit() {
                 tracing::error!(error = %e, "journal commit failed");
                 return;
             }
-            match adapter.reload() {
-                Ok(outcome) => tracing::info!(
-                    live = outcome.live_reload,
-                    restarted = outcome.restarted,
-                    "reloaded"
-                ),
-                Err(e) => tracing::error!(error = %e, "reload failed"),
+            for a in &adapters {
+                if a.detect().is_empty() { continue; }
+                match a.reload() {
+                    Ok(outcome) => tracing::info!(
+                        adapter = a.id(),
+                        live = outcome.live_reload,
+                        restarted = outcome.restarted,
+                        skipped = outcome.skipped,
+                        "reload result"
+                    ),
+                    Err(e) => tracing::error!(
+                        adapter = a.id(),
+                        error = %e,
+                        "reload failed"
+                    ),
+                }
             }
         }
         Err(e) => {

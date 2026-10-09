@@ -1,26 +1,18 @@
 // Adapter trait and write operations.
-//
-// An adapter has two jobs:
-//   1. plan() — pure. Given a palette, produce the writes that would
-//      be performed. No side effects, no file writes, no journal.
-//   2. reload() — after writes succeed, ask the app to pick them up.
-//
-// The apply pipeline takes the Vec<WriteOp>, journals each one, then
-// executes. Adapters never write files themselves.
 
+pub mod cava;
+pub mod chronoterm;
+pub mod starship;
 pub mod windows_terminal;
 
 use crate::palette::Palette;
 use anyhow::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct WriteOp {
-    /// Adapter id, recorded in the journal.
     pub adapter: &'static str,
-    /// The file to write.
     pub target: PathBuf,
-    /// Full new content of the file.
     pub content: String,
 }
 
@@ -35,21 +27,11 @@ pub struct ReloadOutcome {
 pub trait AppAdapter: Send + Sync {
     fn id(&self) -> &'static str;
     fn display_name(&self) -> &'static str;
-
-    /// Return every file path the adapter considers a valid install.
-    /// Empty when the app is not installed.
     fn detect(&self) -> Vec<PathBuf>;
-
-    /// Pure. Reads files to compute new content, but never writes.
     fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>>;
-
-    /// Called after all writes for this adapter have succeeded.
     fn reload(&self) -> Result<ReloadOutcome>;
 }
 
-/// Apply a batch of WriteOps under a journal. Each op is journaled
-/// before its write, marked done after, and the journal is committed
-/// (and deleted) once all succeed.
 pub fn apply_ops(
     journal: &mut crate::journal::Journal,
     ops: &[WriteOp],
@@ -67,16 +49,15 @@ pub fn apply_ops(
             Some(&temp),
         )?;
 
-        // Backup once, never overwritten.
         if !backup.exists() && op.target.exists() {
             fs::copy(&op.target, &backup)?;
             tracing::info!(backup = %backup.display(), "backup created");
         }
 
-        // Stage to temp in same directory.
+        if let Some(parent) = op.target.parent() {
+            fs::create_dir_all(parent)?;
+        }
         fs::write(&temp, &op.content)?;
-
-        // Rename over target.
         fs::rename(&temp, &op.target)?;
 
         journal.mark_done(entry)?;
@@ -90,14 +71,55 @@ pub fn apply_ops(
     Ok(())
 }
 
-pub fn backup_path(target: &std::path::Path) -> PathBuf {
+pub fn backup_path(target: &Path) -> PathBuf {
     let mut name = target.file_name().unwrap_or_default().to_os_string();
     name.push(".murf-bak");
     target.with_file_name(name)
 }
 
-pub fn temp_path(target: &std::path::Path) -> PathBuf {
+pub fn temp_path(target: &Path) -> PathBuf {
     let mut name = target.file_name().unwrap_or_default().to_os_string();
     name.push(".murf.tmp");
     target.with_file_name(name)
+}
+
+/// Replace the block between `open` and `close` markers with `body`,
+/// or append a new block if the markers are absent. The markers
+/// themselves are preserved.
+pub fn inject_section(original: &str, marker: &str, body: &str) -> String {
+    let open = marker;
+    let close = marker.replace("<murf>", "</murf>");
+
+    if let Some(start_idx) = original.find(open) {
+        if let Some(rel_end) = original[start_idx + open.len()..].find(&close) {
+            let close_start = start_idx + open.len() + rel_end;
+            let close_end = close_start + close.len();
+            let before = &original[..start_idx];
+            let after = &original[close_end..];
+            return format!(
+                "{}{}\n{}\n{}{}",
+                before, open, body.trim_end(), close, after
+            );
+        }
+    }
+
+    let mut out = original.to_string();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(open);
+    out.push('\n');
+    out.push_str(body.trim_end());
+    out.push('\n');
+    out.push_str(&close);
+    out.push('\n');
+    out
+}
+
+/// Home directory of the current user.
+pub fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("USERPROFILE").map(PathBuf::from)
 }
