@@ -3,14 +3,16 @@
 // OKLCH conversions use Björn Ottosson's reference formulas
 // (https://bottosson.github.io/posts/oklab/).
 //
-// Semantic ANSI derivation: given a seed (primary) hue H, produce
-// six hue-rotated ANSI slots that land in recognizable perceptual
-// neighborhoods while staying tinted toward the wallpaper.
+// Semantic ANSI derivation uses absolute target hues in OKLCH,
+// blended partway toward the seed's hue so the result stays
+// connected to the wallpaper. Absolute targets guarantee the
+// color lands in the correct perceptual neighborhood regardless
+// of the seed's hue.
 
 pub struct Oklch {
-    pub l: f32, // 0.0 .. 1.0
-    pub c: f32, // 0.0 .. ~0.4
-    pub h: f32, // degrees
+    pub l: f32,
+    pub c: f32,
+    pub h: f32,
 }
 
 pub fn hex_to_oklch(hex: &str) -> Option<Oklch> {
@@ -70,23 +72,14 @@ fn oklch_to_srgb(color: &Oklch) -> (f32, f32, f32) {
 }
 
 fn srgb_to_linear(c: f32) -> f32 {
-    if c <= 0.04045 {
-        c / 12.92
-    } else {
-        ((c + 0.055) / 1.055).powf(2.4)
-    }
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
 }
 
 fn linear_to_srgb(c: f32) -> f32 {
     let c = c.clamp(0.0, 1.0);
-    if c <= 0.0031308 {
-        12.92 * c
-    } else {
-        1.055 * c.powf(1.0 / 2.4) - 0.055
-    }
+    if c <= 0.0031308 { 12.92 * c } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
 }
 
-/// Increase OKLCH lightness by `delta`, clamp to [0,1].
 pub fn brighten(hex: &str, delta: f32) -> String {
     match hex_to_oklch(hex) {
         Some(mut c) => {
@@ -118,24 +111,50 @@ pub struct AnsiColors {
     pub bright_purple: String,
 }
 
+/// Absolute OKLCH targets for canonical ANSI hues.
+const TARGET_YELLOW: f32 = 95.0;
+const TARGET_GREEN:  f32 = 145.0;
+const TARGET_CYAN:   f32 = 195.0;
+const TARGET_BLUE:   f32 = 250.0;
+const TARGET_PURPLE: f32 = 305.0;
+
+/// How much of the seed's hue to pull each target toward.
+/// 0.0 = pure canonical, 1.0 = fully seed-tinted.
+const SEED_PULL: f32 = 0.20;
+
+fn shortest_hue_delta(from: f32, to: f32) -> f32 {
+    let d = (to - from).rem_euclid(360.0);
+    if d > 180.0 { d - 360.0 } else { d }
+}
+
+fn blend_toward_target(seed_h: f32, target: f32, pull: f32) -> f32 {
+    let delta = shortest_hue_delta(seed_h, target);
+    (seed_h + delta * (1.0 - pull)).rem_euclid(360.0)
+}
+
 /// Derive ANSI slots from the seed's hue.
 ///
-/// Hue offsets are v1 tunable values. See docs/adapter-mappings.md.
-/// `red` is not derived; it uses `error`.
+/// Each slot uses an absolute OKLCH target hue, blended `SEED_PULL`
+/// toward the seed's hue. This keeps the color in its recognizable
+/// neighborhood while tinting it toward the wallpaper.
+///
+/// `red` is not derived; it uses `error` directly.
 pub fn semantic_ansi(seed_hex: &str, error_hex: &str) -> AnsiColors {
     let seed = hex_to_oklch(seed_hex).unwrap_or(Oklch { l: 0.5, c: 0.1, h: 0.0 });
     let h = seed.h;
 
-    let make = |offset: f32, chroma: f32, l: f32| -> String {
-        let hue = (h + offset).rem_euclid(360.0);
+    let make = |target: f32, chroma: f32, l: f32| -> String {
+        let hue = blend_toward_target(h, target, SEED_PULL);
         oklch_to_hex(&Oklch { l, c: chroma, h: hue })
     };
 
-    let yellow = make(65.0,  0.13, 0.65);
-    let green  = make(125.0, 0.14, 0.60);
-    let cyan   = make(175.0, 0.10, 0.62);
-    let blue   = make(215.0, 0.15, 0.58);
-    let purple = make(285.0, 0.14, 0.60);
+    // Lightness chosen per hue so each color reads clearly on both
+    // light and dark backgrounds.
+    let yellow = make(TARGET_YELLOW, 0.15, 0.78);
+    let green  = make(TARGET_GREEN,  0.17, 0.62);
+    let cyan   = make(TARGET_CYAN,   0.13, 0.70);
+    let blue   = make(TARGET_BLUE,   0.16, 0.55);
+    let purple = make(TARGET_PURPLE, 0.18, 0.55);
 
     AnsiColors {
         red: error_hex.to_string(),
@@ -153,7 +172,6 @@ pub fn semantic_ansi(seed_hex: &str, error_hex: &str) -> AnsiColors {
     }
 }
 
-/// Material mode: direct M3 role assignment. No derivation.
 pub fn material_ansi(
     red: &str, green: &str, yellow: &str,
     blue: &str, purple: &str, cyan: &str,
