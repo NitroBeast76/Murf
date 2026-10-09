@@ -1,7 +1,8 @@
-// Murf entry point. v0.1 with semantic ANSI mode.
+// Murf entry point. v0.2 step 1: config file.
 
 mod adapters;
 mod color;
+mod config;
 mod matugen;
 mod palette;
 mod watcher;
@@ -15,11 +16,6 @@ use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem},
     Icon, TrayIconBuilder,
 };
-
-const MODE: &str = "smart";
-const SCHEME_TYPE: &str = "scheme-tonal-spot";
-const CONTRAST: f32 = 0.0;
-const ANSI_MODE: AnsiMode = AnsiMode::Semantic;
 
 enum UserEvent {
     Menu(MenuEvent),
@@ -58,7 +54,18 @@ fn make_icon() -> Icon {
     Icon::from_rgba(rgba, size, size).expect("valid icon")
 }
 
-fn write_palette_dump(wallpaper: &str, palette: &palette::Palette) -> Result<PathBuf> {
+fn ansi_mode_from_str(s: &str) -> AnsiMode {
+    match s {
+        "material" => AnsiMode::Material,
+        _ => AnsiMode::Semantic,
+    }
+}
+
+fn write_palette_dump(
+    wallpaper: &str,
+    palette: &palette::Palette,
+    cfg: &config::Config,
+) -> Result<PathBuf> {
     let Some(local) = std::env::var_os("LOCALAPPDATA") else {
         anyhow::bail!("LOCALAPPDATA not set");
     };
@@ -77,13 +84,10 @@ fn write_palette_dump(wallpaper: &str, palette: &palette::Palette) -> Result<Pat
 
     let doc = serde_json::json!({
         "wallpaper": wallpaper,
-        "mode": MODE,
-        "scheme_type": SCHEME_TYPE,
-        "contrast": CONTRAST,
-        "ansi_mapping": match ANSI_MODE {
-            AnsiMode::Semantic => "semantic",
-            AnsiMode::Material => "material",
-        },
+        "mode": cfg.palette.mode,
+        "scheme_type": cfg.palette.scheme_type,
+        "contrast": cfg.palette.contrast,
+        "ansi_mapping": cfg.palette.ansi_mapping,
         "roles": roles,
         "ansi_semantic": {
             "red": sem.red, "yellow": sem.yellow, "green": sem.green,
@@ -98,10 +102,15 @@ fn write_palette_dump(wallpaper: &str, palette: &palette::Palette) -> Result<Pat
     Ok(path)
 }
 
-fn run_apply(wallpaper: &str) {
+fn run_apply(wallpaper: &str, cfg: &config::Config) {
     tracing::info!(wallpaper = %wallpaper, "applying palette");
 
-    let palette = match matugen::generate(wallpaper, MODE, SCHEME_TYPE, CONTRAST) {
+    let palette = match matugen::generate(
+        wallpaper,
+        &cfg.palette.mode,
+        &cfg.palette.scheme_type,
+        cfg.palette.contrast,
+    ) {
         Ok(p) => p,
         Err(e) => {
             tracing::error!(error = %e, "matugen failed");
@@ -111,12 +120,13 @@ fn run_apply(wallpaper: &str) {
 
     tracing::info!(roles = palette.roles.len(), "palette parsed");
 
-    match write_palette_dump(wallpaper, &palette) {
+    match write_palette_dump(wallpaper, &palette, cfg) {
         Ok(path) => tracing::info!(path = %path.display(), "palette dump written"),
         Err(e) => tracing::warn!(error = %e, "failed to write palette dump"),
     }
 
-    match adapters::windows_terminal::apply(&palette, ANSI_MODE) {
+    let ansi_mode = ansi_mode_from_str(&cfg.palette.ansi_mapping);
+    match adapters::windows_terminal::apply(&palette, ansi_mode) {
         Ok(paths) if paths.is_empty() => {
             tracing::warn!("no Windows Terminal config found");
         }
@@ -130,10 +140,15 @@ fn run_apply(wallpaper: &str) {
 }
 
 fn main() -> Result<()> {
+    // Load config first so log_level is available, then re-init
+    // the subscriber with the configured level.
+    let cfg = config::load_or_default()?;
+
+    let default_level = cfg.general.log_level.clone();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "murf=info".into()),
+                .unwrap_or_else(|_| format!("murf={}", default_level).into()),
         )
         .init();
 
@@ -146,7 +161,7 @@ fn main() -> Result<()> {
         let _ = menu_proxy.send_event(UserEvent::Menu(event));
     }));
 
-    let watcher = watcher::Watcher::start(6)?;
+    let watcher = watcher::Watcher::start(cfg.general.settle_delay_secs)?;
     let watcher_proxy = event_loop.create_proxy();
     let rx = watcher.rx;
     std::thread::spawn(move || {
@@ -157,12 +172,15 @@ fn main() -> Result<()> {
 
     let menu = Menu::new();
     let apply_now = MenuItem::new("Apply now", true, None);
+    let open_config = MenuItem::new("Open config", true, None);
     let quit = MenuItem::new("Quit", true, None);
 
     let apply_id = apply_now.id().clone();
+    let open_config_id = open_config.id().clone();
     let quit_id = quit.id().clone();
 
     menu.append(&apply_now)?;
+    menu.append(&open_config)?;
     menu.append(&quit)?;
 
     let _tray = TrayIconBuilder::new()
@@ -180,16 +198,22 @@ fn main() -> Result<()> {
             tao::event::Event::UserEvent(UserEvent::Menu(menu_event)) => {
                 if menu_event.id == apply_id {
                     match matugen::current_wallpaper() {
-                        Some(w) => run_apply(&w),
+                        Some(w) => run_apply(&w, &cfg),
                         None => tracing::warn!("no wallpaper path found"),
                     }
+                } else if menu_event.id == open_config_id {
+                    let path = config::config_path();
+                    tracing::info!(path = %path.display(), "opening config");
+                    let _ = std::process::Command::new("cmd")
+                        .args(["/C", "start", "", &path.to_string_lossy()])
+                        .spawn();
                 } else if menu_event.id == quit_id {
                     tracing::info!("quit clicked");
                     *control_flow = ControlFlow::Exit;
                 }
             }
             tao::event::Event::UserEvent(UserEvent::WallpaperChanged(path)) => {
-                run_apply(&path);
+                run_apply(&path, &cfg);
             }
             _ => {}
         }
