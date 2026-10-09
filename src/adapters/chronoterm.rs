@@ -1,10 +1,10 @@
 // Chronoterm adapter.
 //
-// Locates config.toml in either %APPDATA%\chronoterm\ or
-// %USERPROFILE%\.config\chronoterm\, preferring whichever exists.
-// Replaces the [colors] table between # <murf> markers.
+// Locates config.toml in %APPDATA%\chronoterm\ or
+// %USERPROFILE%\.config\chronoterm\. Replaces the [colors] table in
+// place with a Murf-managed version between markers.
 
-use super::{home_dir, inject_section, AppAdapter, ReloadOutcome, WriteOp};
+use super::{home_dir, replace_table, AppAdapter, ReloadOutcome, WriteOp};
 use crate::palette::Palette;
 use anyhow::{Context, Result};
 use std::fs;
@@ -12,24 +12,17 @@ use std::path::PathBuf;
 
 pub struct Chronoterm;
 
-const MARKER: &str = "# <murf>";
+const MARKER_OPEN: &str = "# <murf>";
+const MARKER_CLOSE: &str = "# </murf>";
 
 impl Chronoterm {
     fn candidate_paths() -> Vec<PathBuf> {
         let mut out = Vec::new();
         if let Some(appdata) = std::env::var_os("APPDATA") {
-            out.push(
-                PathBuf::from(appdata)
-                    .join("chronoterm")
-                    .join("config.toml"),
-            );
+            out.push(PathBuf::from(appdata).join("chronoterm").join("config.toml"));
         }
         if let Some(home) = home_dir() {
-            out.push(
-                home.join(".config")
-                    .join("chronoterm")
-                    .join("config.toml"),
-            );
+            out.push(home.join(".config").join("chronoterm").join("config.toml"));
         }
         out
     }
@@ -63,7 +56,7 @@ impl AppAdapter for Chronoterm {
             palette.hex_or("on_surface", "#ffffff"),
         );
 
-        let new_text = inject_section(&text, MARKER, &body);
+        let new_text = replace_table(&text, "colors", MARKER_OPEN, MARKER_CLOSE, &body);
 
         Ok(vec![WriteOp {
             adapter: "chronoterm",

@@ -83,43 +83,98 @@ pub fn temp_path(target: &Path) -> PathBuf {
     target.with_file_name(name)
 }
 
-/// Replace the block between `open` and `close` markers with `body`,
-/// or append a new block if the markers are absent. The markers
-/// themselves are preserved.
-pub fn inject_section(original: &str, marker: &str, body: &str) -> String {
-    let open = marker;
-    let close = marker.replace("<murf>", "</murf>");
-
-    if let Some(start_idx) = original.find(open) {
-        if let Some(rel_end) = original[start_idx + open.len()..].find(&close) {
-            let close_start = start_idx + open.len() + rel_end;
-            let close_end = close_start + close.len();
-            let before = &original[..start_idx];
-            let after = &original[close_end..];
-            return format!(
-                "{}{}\n{}\n{}{}",
-                before, open, body.trim_end(), close, after
-            );
-        }
-    }
-
-    let mut out = original.to_string();
-    if !out.is_empty() && !out.ends_with('\n') {
-        out.push('\n');
-    }
-    if !out.is_empty() {
-        out.push('\n');
-    }
-    out.push_str(open);
-    out.push('\n');
-    out.push_str(body.trim_end());
-    out.push('\n');
-    out.push_str(&close);
-    out.push('\n');
-    out
-}
-
 /// Home directory of the current user.
 pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE").map(PathBuf::from)
+}
+
+/// Replace an existing `[table]` section with `body`, wrapped in
+/// marker lines. If the table is absent, append a marked block at
+/// the end of the file.
+///
+/// A section ends at the next line whose trimmed form is a bracketed
+/// header (`[name]` alone on the line) or at EOF.
+pub fn replace_table(
+    original: &str,
+    table_name: &str,
+    marker_open: &str,
+    marker_close: &str,
+    body: &str,
+) -> String {
+    let header = format!("[{}]", table_name);
+    let lines: Vec<&str> = original.lines().collect();
+
+    let is_header = |s: &str| -> bool {
+        let t = s.trim();
+        t.starts_with('[') && t.ends_with(']') && t.len() > 2
+    };
+
+    let header_idx = lines.iter().position(|l| l.trim() == header);
+
+    if let Some(idx) = header_idx {
+        let end_idx = lines
+            .iter()
+            .enumerate()
+            .skip(idx + 1)
+            .find(|(_, l)| is_header(l))
+            .map(|(i, _)| i)
+            .unwrap_or(lines.len());
+
+        let mut out = String::new();
+        for l in &lines[..idx] {
+            out.push_str(l);
+            out.push('\n');
+        }
+        out.push_str(marker_open);
+        out.push('\n');
+        out.push_str(body.trim_end());
+        out.push('\n');
+        out.push_str(marker_close);
+        out.push('\n');
+        for l in &lines[end_idx..] {
+            out.push_str(l);
+            out.push('\n');
+        }
+        if !original.ends_with('\n') && out.ends_with('\n') {
+            out.pop();
+        }
+        out
+    } else {
+        let mut out = original.to_string();
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(marker_open);
+        out.push('\n');
+        out.push_str(body.trim_end());
+        out.push('\n');
+        out.push_str(marker_close);
+        out.push('\n');
+        out
+    }
+}
+
+/// Remove a marker block delimited by `marker_open` and `marker_close`,
+/// including one trailing newline after the close marker.
+pub fn remove_block(original: &str, marker_open: &str, marker_close: &str) -> String {
+    if let Some(start) = original.find(marker_open) {
+        if let Some(rel_end) = original[start + marker_open.len()..].find(marker_close) {
+            let close_end = start + marker_open.len() + rel_end + marker_close.len();
+            let mut end = close_end;
+            if original[end..].starts_with('\n') {
+                end += 1;
+            }
+            if original[end..].starts_with('\n') {
+                end += 1;
+            }
+            let mut out = String::new();
+            out.push_str(&original[..start]);
+            out.push_str(&original[end..]);
+            return out;
+        }
+    }
+    original.to_string()
 }

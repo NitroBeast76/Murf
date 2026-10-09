@@ -1,10 +1,10 @@
 // Starship adapter.
 //
-// Injects a [palettes.murf] block between markers, and replaces the
-// root-level palette = "..." setting. The user's original value is
-// preserved by the journaled backup of starship.toml.
+// Injects a [palettes.murf] block with the full set of names
+// Starship knows, and forces the root palette = "murf" setting.
 
 use super::{home_dir, inject_section, AppAdapter, ReloadOutcome, WriteOp};
+use crate::color::{semantic_ansi, AnsiMode};
 use crate::palette::Palette;
 use anyhow::{Context, Result};
 use std::fs;
@@ -39,22 +39,49 @@ impl AppAdapter for Starship {
         let text = fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
 
+        // Include both the M3 names and the ANSI set, so format
+        // strings using `bg:red`, `bg:green`, etc. resolve.
+        let primary = palette.hex_or("primary", "#ffffff");
+        let error   = palette.hex_or("error",   "#ff0000");
+        let bg      = palette.hex_or("background", "#000000");
+        let ansi = semantic_ansi(&primary, &error, &bg, palette.is_dark);
+
         let body = format!(
             "[palettes.{name}]\n\
+             # M3 roles\n\
              primary    = \"{primary}\"\n\
              secondary  = \"{secondary}\"\n\
              tertiary   = \"{tertiary}\"\n\
              surface    = \"{surface}\"\n\
              on_surface = \"{on_surface}\"\n\
-             error      = \"{error}\"",
+             error      = \"{error}\"\n\
+             \n\
+             # ANSI set\n\
+             black   = \"{black}\"\n\
+             red     = \"{red}\"\n\
+             green   = \"{green}\"\n\
+             yellow  = \"{yellow}\"\n\
+             blue    = \"{blue}\"\n\
+             purple  = \"{purple}\"\n\
+             cyan    = \"{cyan}\"\n\
+             white   = \"{white}\"",
             name = PALETTE_NAME,
-            primary    = palette.hex_or("primary", "#ffffff"),
+            primary    = primary,
             secondary  = palette.hex_or("secondary", "#cccccc"),
             tertiary   = palette.hex_or("tertiary", "#aaaaaa"),
             surface    = palette.hex_or("surface", "#000000"),
             on_surface = palette.hex_or("on_surface", "#ffffff"),
-            error      = palette.hex_or("error", "#ff0000"),
+            error      = error,
+            black  = palette.hex_or("surface_container_lowest", "#000000"),
+            red    = ansi.red,
+            green  = ansi.green,
+            yellow = ansi.yellow,
+            blue   = ansi.blue,
+            purple = ansi.purple,
+            cyan   = ansi.cyan,
+            white  = palette.hex_or("on_surface", "#ffffff"),
         );
+
         let with_block = inject_section(&text, MARKER, &body);
         let final_text = set_root_palette(&with_block, PALETTE_NAME);
 
@@ -72,61 +99,61 @@ impl AppAdapter for Starship {
 
 /// Replace the root-level `palette = ...` line with the Murf value.
 /// Lines inside triple-quoted strings are skipped. Scanning stops at
-/// the first section header, because root-level keys cannot appear
-/// after one.
+/// the first section header. Also removes any duplicate `palette = ...`
+/// lines that appear after the first one.
 fn set_root_palette(text: &str, name: &str) -> String {
-    let mut lines: Vec<String> = text.lines().map(String::from).collect();
-    let mut found = false;
+    let lines: Vec<String> = text.lines().map(String::from).collect();
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
     let mut in_multiline = false;
+    let mut in_section = false;
+    let mut seen = false;
 
-    for line in lines.iter_mut() {
+    for line in lines {
         let triple = line.matches("\"\"\"").count();
 
-        // If we entered this iteration inside a multiline, skip.
         if in_multiline {
-            if triple % 2 == 1 {
-                in_multiline = false;
-            }
+            out.push(line.clone());
+            if triple % 2 == 1 { in_multiline = false; }
             continue;
         }
-        // If this line opens a multiline, skip it and flip state.
         if triple % 2 == 1 {
+            out.push(line.clone());
             in_multiline = true;
             continue;
         }
 
         let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
 
-        // A section header is `[something]` optionally followed by a
-        // comment. Anything else (like `[x](y)\`) is content.
-        if trimmed.starts_with('[') {
+        if !in_section && trimmed.starts_with('[') {
             if let Some(end) = trimmed.find(']') {
                 let after = trimmed[end + 1..].trim();
                 if after.is_empty() || after.starts_with('#') {
-                    break; // root section ends here
+                    in_section = true;
                 }
             }
         }
 
-        if let Some(rest) = trimmed.strip_prefix("palette") {
-            if rest.trim_start().starts_with('=') {
-                *line = format!("palette = \"{}\"", name);
-                found = true;
-                break;
+        if !in_section {
+            if let Some(rest) = trimmed.strip_prefix("palette") {
+                if rest.trim_start().starts_with('=') {
+                    if !seen {
+                        out.push(format!("palette = \"{}\"", name));
+                        seen = true;
+                    }
+                    // Skip duplicates.
+                    continue;
+                }
             }
         }
+
+        out.push(line);
     }
 
-    if !found {
-        lines.insert(0, format!("palette = \"{}\"", name));
+    if !seen {
+        out.insert(0, format!("palette = \"{}\"", name));
     }
 
-    let mut out = lines.join("\n");
-    if text.ends_with('\n') {
-        out.push('\n');
-    }
-    out
+    let mut s = out.join("\n");
+    if text.ends_with('\n') { s.push('\n'); }
+    s
 }
