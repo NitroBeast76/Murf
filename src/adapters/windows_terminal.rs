@@ -48,9 +48,10 @@ fn build_scheme(p: &Palette, mode: AnsiMode) -> serde_json::Value {
 
     let primary = p.hex_or("primary", "#808080");
     let error   = p.hex_or("error",   "#ff0000");
+    let bg      = p.hex_or("background", "#000000");
 
     let ansi = match mode {
-        AnsiMode::Semantic => semantic_ansi(&primary, &error, p.is_dark),
+        AnsiMode::Semantic => semantic_ansi(&primary, &error, &bg, p.is_dark),
         AnsiMode::Material => material_ansi(
             &error,
             &p.hex_or("tertiary",              "#00ff00"),

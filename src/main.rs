@@ -1,4 +1,4 @@
-// Murf entry point. v0.2 step 2: is_dark plumbing.
+// Murf entry point. v0.2 step 3: ANSI contrast enforcement.
 
 mod adapters;
 mod color;
@@ -61,6 +61,10 @@ fn ansi_mode_from_str(s: &str) -> AnsiMode {
     }
 }
 
+fn contrast(a: &str, b: &str) -> f32 {
+    color::contrast_ratio(a, b).unwrap_or(0.0)
+}
+
 fn write_palette_dump(
     wallpaper: &str,
     palette: &palette::Palette,
@@ -80,7 +84,10 @@ fn write_palette_dump(
 
     let primary = palette.hex_or("primary", "#808080");
     let error   = palette.hex_or("error",   "#ff0000");
-    let sem = color::semantic_ansi(&primary, &error, palette.is_dark);
+    let bg      = palette.hex_or("background", "#000000");
+    let sem = color::semantic_ansi(&primary, &error, &bg, palette.is_dark);
+
+    let ratio = |hex: &str| -> f64 { contrast(hex, &bg) as f64 };
 
     let doc = serde_json::json!({
         "wallpaper": wallpaper,
@@ -89,6 +96,7 @@ fn write_palette_dump(
         "contrast": cfg.palette.contrast,
         "ansi_mapping": cfg.palette.ansi_mapping,
         "is_dark": palette.is_dark,
+        "background": bg,
         "roles": roles,
         "ansi_semantic": {
             "red": sem.red, "yellow": sem.yellow, "green": sem.green,
@@ -96,6 +104,20 @@ fn write_palette_dump(
             "brightRed": sem.bright_red, "brightYellow": sem.bright_yellow,
             "brightGreen": sem.bright_green, "brightCyan": sem.bright_cyan,
             "brightBlue": sem.bright_blue, "brightPurple": sem.bright_purple,
+        },
+        "ansi_contrast": {
+            "red":          ratio(&sem.red),
+            "yellow":       ratio(&sem.yellow),
+            "green":        ratio(&sem.green),
+            "cyan":         ratio(&sem.cyan),
+            "blue":         ratio(&sem.blue),
+            "purple":       ratio(&sem.purple),
+            "brightRed":    ratio(&sem.bright_red),
+            "brightYellow": ratio(&sem.bright_yellow),
+            "brightGreen":  ratio(&sem.bright_green),
+            "brightCyan":   ratio(&sem.bright_cyan),
+            "brightBlue":   ratio(&sem.bright_blue),
+            "brightPurple": ratio(&sem.bright_purple),
         },
     });
 

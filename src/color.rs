@@ -1,11 +1,10 @@
 // Color math for Murf.
 //
-// OKLCH conversions use Björn Ottosson's reference formulas
-// (https://bottosson.github.io/posts/oklab/).
-//
-// Semantic ANSI derivation uses absolute target hues in OKLCH,
-// blended partway toward the seed's hue. Lightness tables differ
-// for dark and light palettes so slots stay readable either way.
+// OKLCH conversions use Björn Ottosson's reference formulas.
+// Semantic ANSI derivation uses absolute target hues, blended
+// toward the seed's hue. Lightness tables differ for dark and
+// light palettes, and every derived slot is contrast-checked
+// against the palette's background.
 
 pub struct Oklch {
     pub l: f32,
@@ -78,7 +77,52 @@ fn linear_to_srgb(c: f32) -> f32 {
     if c <= 0.0031308 { 12.92 * c } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
 }
 
-/// Clamp so high-L bright variants don't desaturate to white.
+/// WCAG relative luminance of an sRGB color.
+pub fn relative_luminance(hex: &str) -> Option<f32> {
+    let hex = hex.trim_start_matches('#');
+    if hex.len() != 6 { return None; }
+    let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
+    let g = u8::from_str_radix(&hex[2..4], 16).ok()? as f32 / 255.0;
+    let b = u8::from_str_radix(&hex[4..6], 16).ok()? as f32 / 255.0;
+    Some(0.2126 * srgb_to_linear(r)
+       + 0.7152 * srgb_to_linear(g)
+       + 0.0722 * srgb_to_linear(b))
+}
+
+/// WCAG contrast ratio between two colors. Range [1.0, 21.0].
+pub fn contrast_ratio(a: &str, b: &str) -> Option<f32> {
+    let la = relative_luminance(a)?;
+    let lb = relative_luminance(b)?;
+    let (hi, lo) = if la > lb { (la, lb) } else { (lb, la) };
+    Some((hi + 0.05) / (lo + 0.05))
+}
+
+/// Minimum contrast for a derived ANSI slot against `background`.
+pub const MIN_ANSI_CONTRAST: f32 = 3.0;
+
+/// Nudge lightness until the color reaches `min_ratio` against
+/// `bg_hex`. Direction depends on `is_dark`: on a dark background,
+/// lighten; on a light background, darken. Gives up after 25 steps
+/// or when L hits 0.10 or 0.95.
+pub fn ensure_readable(hex: &str, bg_hex: &str, is_dark: bool, min_ratio: f32) -> String {
+    let Some(mut c) = hex_to_oklch(hex) else { return hex.to_string() };
+    let Some(bg_lum) = relative_luminance(bg_hex) else { return hex.to_string() };
+
+    for _ in 0..25 {
+        let cur = oklch_to_hex(&c);
+        let Some(cur_lum) = relative_luminance(&cur) else { break };
+        let (hi, lo) = if cur_lum > bg_lum { (cur_lum, bg_lum) } else { (bg_lum, cur_lum) };
+        let ratio = (hi + 0.05) / (lo + 0.05);
+        if ratio >= min_ratio { break }
+        if is_dark {
+            c.l = (c.l + 0.02).min(0.95);
+        } else {
+            c.l = (c.l - 0.02).max(0.10);
+        }
+    }
+    oklch_to_hex(&c)
+}
+
 const BRIGHTEN_CEILING: f32 = 0.92;
 
 pub fn brighten(hex: &str, delta: f32) -> String {
@@ -92,10 +136,7 @@ pub fn brighten(hex: &str, delta: f32) -> String {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AnsiMode {
-    Semantic,
-    Material,
-}
+pub enum AnsiMode { Semantic, Material }
 
 pub struct AnsiColors {
     pub red: String,
@@ -120,7 +161,6 @@ const TARGET_PURPLE: f32 = 305.0;
 
 const SEED_PULL: f32 = 0.20;
 
-/// (lightness, chroma) per slot for dark palettes.
 const DARK_TABLE: [(f32, f32); 5] = [
     (0.78, 0.15), // yellow
     (0.62, 0.17), // green
@@ -129,8 +169,6 @@ const DARK_TABLE: [(f32, f32); 5] = [
     (0.55, 0.18), // purple
 ];
 
-/// (lightness, chroma) per slot for light palettes. Lower L to keep
-/// contrast against near-white backgrounds.
 const LIGHT_TABLE: [(f32, f32); 5] = [
     (0.55, 0.16), // yellow
     (0.45, 0.17), // green
@@ -149,14 +187,12 @@ fn blend_toward_target(seed_h: f32, target: f32, pull: f32) -> f32 {
     (seed_h + delta * (1.0 - pull)).rem_euclid(360.0)
 }
 
-/// Derive ANSI slots from the seed's hue.
-///
-/// Each slot uses an absolute OKLCH target hue, blended `SEED_PULL`
-/// toward the seed's hue. Lightness comes from `DARK_TABLE` or
-/// `LIGHT_TABLE` depending on the palette's mode.
-///
-/// `red` is not derived; it uses `error` directly.
-pub fn semantic_ansi(seed_hex: &str, error_hex: &str, is_dark: bool) -> AnsiColors {
+pub fn semantic_ansi(
+    seed_hex: &str,
+    error_hex: &str,
+    bg_hex: &str,
+    is_dark: bool,
+) -> AnsiColors {
     let seed = hex_to_oklch(seed_hex).unwrap_or(Oklch { l: 0.5, c: 0.1, h: 0.0 });
     let h = seed.h;
 
@@ -167,25 +203,26 @@ pub fn semantic_ansi(seed_hex: &str, error_hex: &str, is_dark: bool) -> AnsiColo
         oklch_to_hex(&Oklch { l, c, h: hue })
     };
 
-    let yellow = make(TARGET_YELLOW, table[0].0, table[0].1);
-    let green  = make(TARGET_GREEN,  table[1].0, table[1].1);
-    let cyan   = make(TARGET_CYAN,   table[2].0, table[2].1);
-    let blue   = make(TARGET_BLUE,   table[3].0, table[3].1);
-    let purple = make(TARGET_PURPLE, table[4].0, table[4].1);
+    let ensure = |hex: &str| ensure_readable(hex, bg_hex, is_dark, MIN_ANSI_CONTRAST);
+
+    let yellow = ensure(&make(TARGET_YELLOW, table[0].0, table[0].1));
+    let green  = ensure(&make(TARGET_GREEN,  table[1].0, table[1].1));
+    let cyan   = ensure(&make(TARGET_CYAN,   table[2].0, table[2].1));
+    let blue   = ensure(&make(TARGET_BLUE,   table[3].0, table[3].1));
+    let purple = ensure(&make(TARGET_PURPLE, table[4].0, table[4].1));
+    let red    = ensure(error_hex);
+
+    let bright_yellow = ensure(&brighten(&yellow, 0.10));
+    let bright_green  = ensure(&brighten(&green,  0.10));
+    let bright_cyan   = ensure(&brighten(&cyan,   0.10));
+    let bright_blue   = ensure(&brighten(&blue,   0.10));
+    let bright_purple = ensure(&brighten(&purple, 0.10));
+    let bright_red    = ensure(&brighten(&red,    0.10));
 
     AnsiColors {
-        red: error_hex.to_string(),
-        yellow: yellow.clone(),
-        green: green.clone(),
-        cyan: cyan.clone(),
-        blue: blue.clone(),
-        purple: purple.clone(),
-        bright_red:    brighten(error_hex, 0.10),
-        bright_yellow: brighten(&yellow,   0.10),
-        bright_green:  brighten(&green,    0.10),
-        bright_cyan:   brighten(&cyan,     0.10),
-        bright_blue:   brighten(&blue,     0.10),
-        bright_purple: brighten(&purple,   0.10),
+        red, yellow, green, cyan, blue, purple,
+        bright_red, bright_yellow, bright_green,
+        bright_cyan, bright_blue, bright_purple,
     }
 }
 
