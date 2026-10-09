@@ -1,7 +1,8 @@
 // Chronoterm adapter.
 //
-// Replaces the [colors] table in %USERPROFILE%\.config\chronoterm\config.toml
-// between `# <murf>` and `# </murf>` markers.
+// Locates config.toml in either %APPDATA%\chronoterm\ or
+// %USERPROFILE%\.config\chronoterm\, preferring whichever exists.
+// Replaces the [colors] table between # <murf> markers.
 
 use super::{home_dir, inject_section, AppAdapter, ReloadOutcome, WriteOp};
 use crate::palette::Palette;
@@ -14,8 +15,27 @@ pub struct Chronoterm;
 const MARKER: &str = "# <murf>";
 
 impl Chronoterm {
+    fn candidate_paths() -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            out.push(
+                PathBuf::from(appdata)
+                    .join("chronoterm")
+                    .join("config.toml"),
+            );
+        }
+        if let Some(home) = home_dir() {
+            out.push(
+                home.join(".config")
+                    .join("chronoterm")
+                    .join("config.toml"),
+            );
+        }
+        out
+    }
+
     fn config_path() -> Option<PathBuf> {
-        Some(home_dir()?.join(".config").join("chronoterm").join("config.toml"))
+        Self::candidate_paths().into_iter().find(|p| p.exists())
     }
 }
 
@@ -24,19 +44,13 @@ impl AppAdapter for Chronoterm {
     fn display_name(&self) -> &'static str { "Chronoterm" }
 
     fn detect(&self) -> Vec<PathBuf> {
-        match Self::config_path() {
-            Some(p) if p.exists() => vec![p],
-            _ => vec![],
-        }
+        Self::config_path().into_iter().collect()
     }
 
     fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>> {
         let Some(path) = Self::config_path() else {
             return Ok(vec![]);
         };
-        if !path.exists() {
-            return Ok(vec![]);
-        }
 
         let text = fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;

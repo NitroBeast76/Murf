@@ -1,9 +1,8 @@
 // Starship adapter.
 //
-// Injects a [palettes.murf] block into starship.toml between markers,
-// and forces the root-level `palette = "murf"` setting. The user's
-// original palette name is not preserved in a separate file; the
-// journaled backup of starship.toml handles restoration.
+// Injects a [palettes.murf] block between markers, and replaces the
+// root-level palette = "..." setting. The user's original value is
+// preserved by the journaled backup of starship.toml.
 
 use super::{home_dir, inject_section, AppAdapter, ReloadOutcome, WriteOp};
 use crate::palette::Palette;
@@ -40,7 +39,6 @@ impl AppAdapter for Starship {
         let text = fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
 
-        // Inject/refresh the [palettes.murf] block.
         let body = format!(
             "[palettes.{name}]\n\
              primary    = \"{primary}\"\n\
@@ -58,8 +56,6 @@ impl AppAdapter for Starship {
             error      = palette.hex_or("error", "#ff0000"),
         );
         let with_block = inject_section(&text, MARKER, &body);
-
-        // Force root-level `palette = "murf"`.
         let final_text = set_root_palette(&with_block, PALETTE_NAME);
 
         Ok(vec![WriteOp {
@@ -74,28 +70,47 @@ impl AppAdapter for Starship {
     }
 }
 
-/// Find the root-level `palette = ...` line and replace its value with
-/// `palette = "murf"`. If no such line exists, insert one at the top.
-/// Section headers (lines starting with `[`) disable the search for
-/// the rest of the file, because keys inside a section are not
-/// root-level.
+/// Replace the root-level `palette = ...` line with the Murf value.
+/// Lines inside triple-quoted strings are skipped. Scanning stops at
+/// the first section header, because root-level keys cannot appear
+/// after one.
 fn set_root_palette(text: &str, name: &str) -> String {
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
     let mut found = false;
-    let mut in_section = false;
+    let mut in_multiline = false;
 
     for line in lines.iter_mut() {
+        let triple = line.matches("\"\"\"").count();
+
+        // If we entered this iteration inside a multiline, skip.
+        if in_multiline {
+            if triple % 2 == 1 {
+                in_multiline = false;
+            }
+            continue;
+        }
+        // If this line opens a multiline, skip it and flip state.
+        if triple % 2 == 1 {
+            in_multiline = true;
+            continue;
+        }
+
         let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
 
+        // A section header is `[something]` optionally followed by a
+        // comment. Anything else (like `[x](y)\`) is content.
         if trimmed.starts_with('[') {
-            in_section = true;
-            continue;
-        }
-        if in_section {
-            continue;
+            if let Some(end) = trimmed.find(']') {
+                let after = trimmed[end + 1..].trim();
+                if after.is_empty() || after.starts_with('#') {
+                    break; // root section ends here
+                }
+            }
         }
 
-        // Root-level key.
         if let Some(rest) = trimmed.strip_prefix("palette") {
             if rest.trim_start().starts_with('=') {
                 *line = format!("palette = \"{}\"", name);
@@ -106,7 +121,6 @@ fn set_root_palette(text: &str, name: &str) -> String {
     }
 
     if !found {
-        // Insert at the top, before the first line.
         lines.insert(0, format!("palette = \"{}\"", name));
     }
 
