@@ -1,10 +1,14 @@
 // GlazeWM adapter.
 //
-// Locates config.yaml in any of the paths GlazeWM has used across
-// versions, in priority order. Injects a `# <murf>` block with a
-// colors: map.
+// Injects a `# <murf>` block at the top of config.yaml containing
+// a colors map with YAML anchors. Users reference the anchors via
+// `*murf_primary`, `*murf_outline`, etc. from window_effects and
+// anywhere else they want Murf colors.
+//
+// The block must be at the top because YAML anchors have to be
+// defined before use.
 
-use super::{home_dir, inject_section, AppAdapter, ReloadOutcome, WriteOp};
+use super::{home_dir, inject_at_top, AppAdapter, ReloadOutcome, WriteOp};
 use crate::palette::Palette;
 use anyhow::{Context, Result};
 use std::fs;
@@ -12,7 +16,8 @@ use std::path::PathBuf;
 
 pub struct GlazeWm;
 
-const MARKER: &str = "# <murf>";
+const MARKER_OPEN: &str = "# <murf>";
+const MARKER_CLOSE: &str = "# </murf>";
 
 impl GlazeWm {
     fn candidate_paths() -> Vec<PathBuf> {
@@ -49,14 +54,14 @@ impl AppAdapter for GlazeWm {
 
         let body = format!(
             "colors:\n\
-             \x20 primary:    \"{primary}\"\n\
-             \x20 secondary:  \"{secondary}\"\n\
-             \x20 tertiary:   \"{tertiary}\"\n\
-             \x20 background: \"{background}\"\n\
-             \x20 surface:    \"{surface}\"\n\
-             \x20 on_surface: \"{on_surface}\"\n\
-             \x20 error:      \"{error}\"\n\
-             \x20 outline:    \"{outline}\"",
+             \x20 primary:    &murf_primary    \"{primary}\"\n\
+             \x20 secondary:  &murf_secondary  \"{secondary}\"\n\
+             \x20 tertiary:   &murf_tertiary   \"{tertiary}\"\n\
+             \x20 background: &murf_background \"{background}\"\n\
+             \x20 surface:    &murf_surface    \"{surface}\"\n\
+             \x20 on_surface: &murf_on_surface \"{on_surface}\"\n\
+             \x20 error:      &murf_error      \"{error}\"\n\
+             \x20 outline:    &murf_outline    \"{outline}\"",
             primary    = palette.hex_or("primary", "#ffffff"),
             secondary  = palette.hex_or("secondary", "#cccccc"),
             tertiary   = palette.hex_or("tertiary", "#aaaaaa"),
@@ -67,7 +72,7 @@ impl AppAdapter for GlazeWm {
             outline    = palette.hex_or("outline", "#888888"),
         );
 
-        let new_text = inject_section(&text, MARKER, &body);
+        let new_text = inject_at_top(&text, MARKER_OPEN, MARKER_CLOSE, &body);
 
         Ok(vec![WriteOp {
             adapter: "glazewm",
