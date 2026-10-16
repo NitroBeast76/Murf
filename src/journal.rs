@@ -1,15 +1,6 @@
 // Apply journal.
-//
-// Before any write, an entry is recorded. Entries are updated to
-// "done" as each write completes, with FlushFileBuffers after each
-// update so the journal survives a crash. On successful completion
-// the journal is marked committed and deleted.
-//
-// On startup, if the journal exists and is not committed, Murf
-// restores every "done" entry from its backup and deletes the
-// journal. If restore fails repeatedly, give_up is set and Murf
-// stops retrying.
 
+use crate::adapters::{RegistryData, RegistryHive};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
@@ -17,13 +8,32 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Entry {
-    pub adapter: String,
-    pub kind: String, // "file"
-    pub target: PathBuf,
-    pub backup: Option<PathBuf>,
-    pub temp: Option<PathBuf>,
-    pub status: String, // "pending" | "done"
+#[serde(tag = "kind")]
+pub enum Entry {
+    #[serde(rename = "file")]
+    File {
+        adapter: String,
+        target: PathBuf,
+        backup: Option<PathBuf>,
+        temp: Option<PathBuf>,
+        status: String,
+    },
+    #[serde(rename = "registry")]
+    Registry {
+        adapter: String,
+        hive: String,
+        path: String,
+        value: String,
+        original: Option<RegistryBackup>,
+        status: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RegistryBackup {
+    Dword(u32),
+    Binary(Vec<u8>),
+    Absent,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -48,8 +58,6 @@ pub fn journal_path() -> PathBuf {
 }
 
 impl Journal {
-    /// Create a fresh journal. Fails if one already exists
-    /// (indicates an unrecovered prior apply).
     pub fn begin() -> Result<Self> {
         let path = journal_path();
         if path.exists() {
@@ -74,16 +82,15 @@ impl Journal {
         Ok(j)
     }
 
-    pub fn record(
+    pub fn record_file(
         &mut self,
         adapter: &str,
         target: &Path,
         backup: Option<&Path>,
         temp: Option<&Path>,
     ) -> Result<usize> {
-        self.doc.entries.push(Entry {
+        self.doc.entries.push(Entry::File {
             adapter: adapter.to_string(),
-            kind: "file".to_string(),
             target: target.to_path_buf(),
             backup: backup.map(|p| p.to_path_buf()),
             temp: temp.map(|p| p.to_path_buf()),
@@ -93,9 +100,42 @@ impl Journal {
         Ok(self.doc.entries.len() - 1)
     }
 
+    pub fn record_registry(
+        &mut self,
+        adapter: &str,
+        hive: RegistryHive,
+        path: &str,
+        value: &str,
+        _new_data: &RegistryData,
+    ) -> Result<usize> {
+        let existing = crate::registry::read(hive, path, value).ok().flatten();
+        let original = match existing {
+            Some(RegistryData::Dword(v)) => Some(RegistryBackup::Dword(v)),
+            Some(RegistryData::Binary(v)) => Some(RegistryBackup::Binary(v)),
+            None => Some(RegistryBackup::Absent),
+        };
+
+        let hive_str = match hive {
+            RegistryHive::CurrentUser => "HKCU",
+        };
+
+        self.doc.entries.push(Entry::Registry {
+            adapter: adapter.to_string(),
+            hive: hive_str.to_string(),
+            path: path.to_string(),
+            value: value.to_string(),
+            original,
+            status: "pending".to_string(),
+        });
+        self.flush()?;
+        Ok(self.doc.entries.len() - 1)
+    }
+
     pub fn mark_done(&mut self, index: usize) -> Result<()> {
-        if let Some(e) = self.doc.entries.get_mut(index) {
-            e.status = "done".to_string();
+        match self.doc.entries.get_mut(index) {
+            Some(Entry::File { status, .. }) => { *status = "done".into(); }
+            Some(Entry::Registry { status, .. }) => { *status = "done".into(); }
+            None => {}
         }
         self.flush()?;
         Ok(())
@@ -104,7 +144,6 @@ impl Journal {
     pub fn commit(mut self) -> Result<()> {
         self.doc.committed = true;
         self.flush()?;
-        // Committed flag is now on disk. Safe to delete.
         let _ = fs::remove_file(&self.path);
         Ok(())
     }
@@ -131,7 +170,6 @@ pub enum RecoveryResult {
     GaveUp { attempts: u32 },
 }
 
-/// Run at startup. If a journal is present, restore from backups.
 pub fn recover() -> Result<RecoveryResult> {
     let path = journal_path();
     if !path.exists() {
@@ -154,40 +192,53 @@ pub fn recover() -> Result<RecoveryResult> {
         });
     }
 
-    // Roll back every "done" entry, in reverse.
     let mut restored = 0usize;
     let mut failed = 0usize;
 
     for e in doc.entries.iter().rev() {
-        if e.status != "done" {
-            continue;
-        }
-        let Some(backup) = &e.backup else {
-            continue;
-        };
-        match fs::copy(backup, &e.target) {
-            Ok(_) => {
-                tracing::info!(
-                    target = %e.target.display(),
-                    "restored from backup"
-                );
-                restored += 1;
+        match e {
+            Entry::File { status, target, backup, temp, .. } => {
+                if status == "done" {
+                    if let Some(b) = backup {
+                        match fs::copy(b, target) {
+                            Ok(_) => restored += 1,
+                            Err(err) => {
+                                tracing::error!(target = %target.display(), error = %err, "restore failed");
+                                failed += 1;
+                            }
+                        }
+                    }
+                }
+                if let Some(t) = temp {
+                    let _ = fs::remove_file(t);
+                }
             }
-            Err(err) => {
-                tracing::error!(
-                    target = %e.target.display(),
-                    error = %err,
-                    "restore failed"
-                );
-                failed += 1;
+            Entry::Registry { status, hive, path: rpath, value, original, .. } => {
+                if status != "done" { continue; }
+                let hive_enum = match hive.as_str() {
+                    "HKCU" => RegistryHive::CurrentUser,
+                    _ => continue,
+                };
+                let res = match original {
+                    Some(RegistryBackup::Dword(v)) => {
+                        crate::registry::write(hive_enum, rpath, value, &RegistryData::Dword(*v))
+                    }
+                    Some(RegistryBackup::Binary(v)) => {
+                        crate::registry::write(hive_enum, rpath, value, &RegistryData::Binary(v.clone()))
+                    }
+                    Some(RegistryBackup::Absent) => {
+                        crate::registry::delete(hive_enum, rpath, value)
+                    }
+                    None => Ok(()),
+                };
+                match res {
+                    Ok(_) => restored += 1,
+                    Err(err) => {
+                        tracing::error!(path = %rpath, value = %value, error = %err, "registry restore failed");
+                        failed += 1;
+                    }
+                }
             }
-        }
-    }
-
-    // Clean up temps.
-    for e in &doc.entries {
-        if let Some(t) = &e.temp {
-            let _ = fs::remove_file(t);
         }
     }
 
@@ -209,4 +260,3 @@ pub fn recover() -> Result<RecoveryResult> {
     let _ = fs::remove_file(&path);
     Ok(RecoveryResult::RolledBack { restored, failed })
 }
-

@@ -55,7 +55,7 @@ impl AppAdapter for WindowsTerminal {
         for path in paths {
             let content = plan_file(&path, &scheme)
                 .with_context(|| format!("planning {}", path.display()))?;
-            ops.push(WriteOp {
+            ops.push(WriteOp::File {
                 adapter: "windows_terminal",
                 target: path,
                 content,
@@ -168,3 +168,4 @@ fn plan_file(
 
     Ok(serde_json::to_string_pretty(&settings)?)
 }
+

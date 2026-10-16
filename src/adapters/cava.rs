@@ -72,7 +72,7 @@ impl AppAdapter for Cava {
 
         let new_text = replace_table(&text, "color", MARKER_OPEN, MARKER_CLOSE, &body);
 
-        Ok(vec![WriteOp {
+        Ok(vec![WriteOp::File {
             adapter: "cava",
             target: path,
             content: new_text,
@@ -83,3 +83,4 @@ impl AppAdapter for Cava {
         Ok(ReloadOutcome { skipped: 1, ..Default::default() })
     }
 }
+

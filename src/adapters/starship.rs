@@ -131,7 +131,7 @@ impl AppAdapter for Starship {
         let with_block = inject_section(&text, MARKER, &body);
         let final_text = set_root_palette(&with_block, PALETTE_NAME);
 
-        Ok(vec![WriteOp {
+        Ok(vec![WriteOp::File {
             adapter: "starship",
             target: path,
             content: final_text,
@@ -201,4 +201,5 @@ fn set_root_palette(text: &str, name: &str) -> String {
     if text.ends_with('\n') { s.push('\n'); }
     s
 }
+
 

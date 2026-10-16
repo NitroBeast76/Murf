@@ -1,12 +1,4 @@
 // GlazeWM adapter.
-//
-// Injects a `# <murf>` block at the top of config.yaml containing
-// a colors map with YAML anchors. Users reference the anchors via
-// `*murf_primary`, `*murf_outline`, etc. from window_effects and
-// anywhere else they want Murf colors.
-//
-// The block must be at the top because YAML anchors have to be
-// defined before use.
 
 use super::{home_dir, inject_at_top, AppAdapter, ReloadOutcome, WriteOp};
 use crate::palette::Palette;
@@ -74,7 +66,7 @@ impl AppAdapter for GlazeWm {
 
         let new_text = inject_at_top(&text, MARKER_OPEN, MARKER_CLOSE, &body);
 
-        Ok(vec![WriteOp {
+        Ok(vec![WriteOp::File {
             adapter: "glazewm",
             target: path,
             content: new_text,
@@ -82,6 +74,26 @@ impl AppAdapter for GlazeWm {
     }
 
     fn reload(&self) -> Result<ReloadOutcome> {
+        use std::process::Command;
+
+        let candidates = [
+            "glazewm",
+            r"C:\Program Files\glzr.io\GlazeWM\cli\glazewm.exe",
+        ];
+
+        for bin in candidates {
+            let result = Command::new(bin)
+                .args(["command", "wm-reload-config"])
+                .output();
+            if let Ok(out) = result {
+                if out.status.success() {
+                    tracing::info!(binary = bin, "glazewm reloaded");
+                    return Ok(ReloadOutcome { live_reload: 1, ..Default::default() });
+                }
+            }
+        }
+
+        tracing::warn!("could not invoke glazewm; config written but not reloaded");
         Ok(ReloadOutcome { deferred: 1, ..Default::default() })
     }
 }

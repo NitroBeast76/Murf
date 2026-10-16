@@ -1,7 +1,4 @@
 // YASB adapter.
-//
-// Writes murf-colors.css next to styles.css with --murf-* variables,
-// and inserts an @import line at the top of styles.css once.
 
 use super::{home_dir, inject_at_top, AppAdapter, ReloadOutcome, WriteOp};
 use crate::palette::Palette;
@@ -69,13 +66,13 @@ impl AppAdapter for Yasb {
         }
         css.push_str("}\n");
 
-        let mut ops = vec![WriteOp {
+        let mut ops = vec![WriteOp::File {
             adapter: "yasb",
             target: colors,
             content: css,
         }];
 
-        // ---- styles.css import line ----
+        // ---- styles.css: add import once ----
         let styles_text = fs::read_to_string(&styles)
             .with_context(|| format!("reading {}", styles.display()))?;
 
@@ -91,7 +88,7 @@ impl AppAdapter for Yasb {
                 MARKER_CLOSE,
                 &format!("@import \"{}\";", COLORS_FILE),
             );
-            ops.push(WriteOp {
+            ops.push(WriteOp::File {
                 adapter: "yasb",
                 target: styles,
                 content: new_text,
@@ -102,6 +99,25 @@ impl AppAdapter for Yasb {
     }
 
     fn reload(&self) -> Result<ReloadOutcome> {
-        Ok(ReloadOutcome { restarted: 1, ..Default::default() })
+        // YASB watches styles.css. The companion file changes don't
+        // fire the watcher, so rewrite styles.css with identical
+        // content to force a modify event.
+        let Some(styles) = Self::styles_path() else {
+            return Ok(ReloadOutcome { skipped: 1, ..Default::default() });
+        };
+
+        match fs::read(&styles) {
+            Ok(bytes) => match fs::write(&styles, &bytes) {
+                Ok(_) => Ok(ReloadOutcome { live_reload: 1, ..Default::default() }),
+                Err(e) => {
+                    tracing::warn!(error = %e, "could not touch styles.css");
+                    Ok(ReloadOutcome { deferred: 1, ..Default::default() })
+                }
+            },
+            Err(e) => {
+                tracing::warn!(error = %e, "could not read styles.css");
+                Ok(ReloadOutcome { deferred: 1, ..Default::default() })
+            }
+        }
     }
 }

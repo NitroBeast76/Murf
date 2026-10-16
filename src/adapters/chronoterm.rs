@@ -58,7 +58,7 @@ impl AppAdapter for Chronoterm {
 
         let new_text = replace_table(&text, "colors", MARKER_OPEN, MARKER_CLOSE, &body);
 
-        Ok(vec![WriteOp {
+        Ok(vec![WriteOp::File {
             adapter: "chronoterm",
             target: path,
             content: new_text,
@@ -69,3 +69,4 @@ impl AppAdapter for Chronoterm {
         Ok(ReloadOutcome { skipped: 1, ..Default::default() })
     }
 }
+

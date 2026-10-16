@@ -4,6 +4,7 @@ pub mod cava;
 pub mod chronoterm;
 pub mod glazewm;
 pub mod starship;
+pub mod windows_accent;
 pub mod windows_terminal;
 pub mod yasb;
 
@@ -12,10 +13,28 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
-pub struct WriteOp {
-    pub adapter: &'static str,
-    pub target: PathBuf,
-    pub content: String,
+pub enum WriteOp {
+    File {
+        adapter: &'static str,
+        target: PathBuf,
+        content: String,
+    },
+    Registry {
+        adapter: &'static str,
+        hive: RegistryHive,
+        path: String,
+        value: String,
+        data: RegistryData,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistryHive { CurrentUser }
+
+#[derive(Debug, Clone)]
+pub enum RegistryData {
+    Dword(u32),
+    Binary(Vec<u8>),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -41,33 +60,56 @@ pub fn apply_ops(
     use std::fs;
 
     for op in ops {
-        let backup = backup_path(&op.target);
-        let temp = temp_path(&op.target);
+        match op {
+            WriteOp::File { adapter, target, content } => {
+                let backup = backup_path(target);
+                let temp = temp_path(target);
 
-        let entry = journal.record(
-            op.adapter,
-            &op.target,
-            Some(&backup),
-            Some(&temp),
-        )?;
+                let entry = journal.record_file(
+                    adapter,
+                    target,
+                    Some(&backup),
+                    Some(&temp),
+                )?;
 
-        if !backup.exists() && op.target.exists() {
-            fs::copy(&op.target, &backup)?;
-            tracing::info!(backup = %backup.display(), "backup created");
+                if !backup.exists() && target.exists() {
+                    fs::copy(target, &backup)?;
+                    tracing::info!(backup = %backup.display(), "backup created");
+                }
+
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&temp, content)?;
+                fs::rename(&temp, target)?;
+
+                journal.mark_done(entry)?;
+                tracing::info!(
+                    adapter = adapter,
+                    path = %target.display(),
+                    "wrote file"
+                );
+            }
+            WriteOp::Registry { adapter, hive, path, value, data } => {
+                let entry = journal.record_registry(
+                    adapter,
+                    *hive,
+                    path,
+                    value,
+                    data,
+                )?;
+
+                crate::registry::write(*hive, path, value, data)?;
+
+                journal.mark_done(entry)?;
+                tracing::info!(
+                    adapter = adapter,
+                    path = %path,
+                    value = %value,
+                    "wrote registry"
+                );
+            }
         }
-
-        if let Some(parent) = op.target.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&temp, &op.content)?;
-        fs::rename(&temp, &op.target)?;
-
-        journal.mark_done(entry)?;
-        tracing::info!(
-            adapter = op.adapter,
-            path = %op.target.display(),
-            "wrote"
-        );
     }
 
     Ok(())
@@ -85,17 +127,90 @@ pub fn temp_path(target: &Path) -> PathBuf {
     target.with_file_name(name)
 }
 
-/// Home directory of the current user.
 pub fn home_dir() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE").map(PathBuf::from)
 }
 
-/// Replace an existing `[table]` section with `body`, wrapped in
-/// marker lines. If the table is absent, append a marked block at
-/// the end of the file.
-///
-/// A section ends at the next line whose trimmed form is a bracketed
-/// header (`[name]` alone on the line) or at EOF.
+pub fn inject_section(original: &str, marker: &str, body: &str) -> String {
+    let open = marker;
+    let close = marker.replace("<murf>", "</murf>");
+
+    if let Some(start_idx) = original.find(open) {
+        if let Some(rel_end) = original[start_idx + open.len()..].find(&close) {
+            let close_start = start_idx + open.len() + rel_end;
+            let close_end = close_start + close.len();
+            let before = &original[..start_idx];
+            let after = &original[close_end..];
+            return format!(
+                "{}{}\n{}\n{}{}",
+                before, open, body.trim_end(), close, after
+            );
+        }
+    }
+
+    let mut out = original.to_string();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(open);
+    out.push('\n');
+    out.push_str(body.trim_end());
+    out.push('\n');
+    out.push_str(&close);
+    out.push('\n');
+    out
+}
+
+pub fn inject_at_top(
+    original: &str,
+    marker_open: &str,
+    marker_close: &str,
+    body: &str,
+) -> String {
+    // If the markers exist elsewhere, extract the block and reinsert
+    // it at the top.
+    if let Some(start) = original.find(marker_open) {
+        if let Some(rel_end) = original[start + marker_open.len()..].find(marker_close) {
+            let close_end = start + marker_open.len() + rel_end + marker_close.len();
+            let mut after = close_end;
+            if original[after..].starts_with('\n') { after += 1; }
+
+            let _before = &original[..start];
+            let rest  = &original[after..];
+
+            // Strip leading blank lines from `rest`.
+            let rest_trimmed = rest.trim_start_matches('\n');
+
+            return format!(
+                "{}\n{}\n{}\n{}",
+                marker_open,
+                body.trim_end(),
+                marker_close,
+                rest_trimmed
+            );
+        }
+    }
+
+    let bom = "\u{FEFF}";
+    let (prefix, rest) = if original.starts_with(bom) {
+        (bom, &original[bom.len()..])
+    } else {
+        ("", original)
+    };
+
+    format!(
+        "{}{}\n{}\n{}\n{}",
+        prefix,
+        marker_open,
+        body.trim_end(),
+        marker_close,
+        rest
+    )
+}
+
 pub fn replace_table(
     original: &str,
     table_name: &str,
@@ -159,19 +274,13 @@ pub fn replace_table(
     }
 }
 
-/// Remove a marker block delimited by `marker_open` and `marker_close`,
-/// including one trailing newline after the close marker.
 pub fn remove_block(original: &str, marker_open: &str, marker_close: &str) -> String {
     if let Some(start) = original.find(marker_open) {
         if let Some(rel_end) = original[start + marker_open.len()..].find(marker_close) {
             let close_end = start + marker_open.len() + rel_end + marker_close.len();
             let mut end = close_end;
-            if original[end..].starts_with('\n') {
-                end += 1;
-            }
-            if original[end..].starts_with('\n') {
-                end += 1;
-            }
+            if original[end..].starts_with('\n') { end += 1; }
+            if original[end..].starts_with('\n') { end += 1; }
             let mut out = String::new();
             out.push_str(&original[..start]);
             out.push_str(&original[end..]);
@@ -179,82 +288,5 @@ pub fn remove_block(original: &str, marker_open: &str, marker_close: &str) -> St
         }
     }
     original.to_string()
-}
-
-/// Replace the block between `open` and `close` markers with `body`,
-/// or append a new block if the markers are absent. The markers
-/// themselves are preserved.
-pub fn inject_section(original: &str, marker: &str, body: &str) -> String {
-    let open = marker;
-    let close = marker.replace("<murf>", "</murf>");
-
-    if let Some(start_idx) = original.find(open) {
-        if let Some(rel_end) = original[start_idx + open.len()..].find(&close) {
-            let close_start = start_idx + open.len() + rel_end;
-            let close_end = close_start + close.len();
-            let before = &original[..start_idx];
-            let after = &original[close_end..];
-            return format!(
-                "{}{}\n{}\n{}{}",
-                before, open, body.trim_end(), close, after
-            );
-        }
-    }
-
-    let mut out = original.to_string();
-    if !out.is_empty() && !out.ends_with('\n') {
-        out.push('\n');
-    }
-    if !out.is_empty() {
-        out.push('\n');
-    }
-    out.push_str(open);
-    out.push('\n');
-    out.push_str(body.trim_end());
-    out.push('\n');
-    out.push_str(&close);
-    out.push('\n');
-    out
-}
-
-/// Insert `body` between markers at the very top of `original`, after
-/// any UTF-8 BOM. If the markers already exist, replaces between
-/// them wherever they are.
-pub fn inject_at_top(
-    original: &str,
-    marker_open: &str,
-    marker_close: &str,
-    body: &str,
-) -> String {
-    if let Some(start) = original.find(marker_open) {
-        if let Some(rel_end) = original[start + marker_open.len()..].find(marker_close) {
-            let close_start = start + marker_open.len() + rel_end;
-            let close_end = close_start + marker_close.len();
-            return format!(
-                "{}{}\n{}\n{}{}",
-                &original[..start],
-                marker_open,
-                body.trim_end(),
-                marker_close,
-                &original[close_end..]
-            );
-        }
-    }
-
-    let bom = "\u{FEFF}";
-    let (prefix, rest) = if original.starts_with(bom) {
-        (bom, &original[bom.len()..])
-    } else {
-        ("", original)
-    };
-
-    format!(
-        "{}{}\n{}\n{}\n{}",
-        prefix,
-        marker_open,
-        body.trim_end(),
-        marker_close,
-        rest
-    )
 }
 
