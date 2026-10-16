@@ -1,8 +1,8 @@
 // GlazeWM adapter.
 //
-// Injects a `# <murf>` block containing a `colors:` map into
-// %USERPROFILE%\.glaze-wm\config.yaml. Users reference the anchors
-// from their window_effects section.
+// Locates config.yaml in any of the paths GlazeWM has used across
+// versions, in priority order. Injects a `# <murf>` block with a
+// colors: map.
 
 use super::{home_dir, inject_section, AppAdapter, ReloadOutcome, WriteOp};
 use crate::palette::Palette;
@@ -15,8 +15,21 @@ pub struct GlazeWm;
 const MARKER: &str = "# <murf>";
 
 impl GlazeWm {
+    fn candidate_paths() -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        if let Some(home) = home_dir() {
+            out.push(home.join(".glzr").join("glazewm").join("config.yaml"));
+            out.push(home.join(".glaze-wm").join("config.yaml"));
+            out.push(home.join(".config").join("glazewm").join("config.yaml"));
+        }
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            out.push(PathBuf::from(appdata).join("glazewm").join("config.yaml"));
+        }
+        out
+    }
+
     fn config_path() -> Option<PathBuf> {
-        Some(home_dir()?.join(".glaze-wm").join("config.yaml"))
+        Self::candidate_paths().into_iter().find(|p| p.exists())
     }
 }
 
@@ -25,10 +38,7 @@ impl AppAdapter for GlazeWm {
     fn display_name(&self) -> &'static str { "GlazeWM" }
 
     fn detect(&self) -> Vec<PathBuf> {
-        match Self::config_path() {
-            Some(p) if p.exists() => vec![p],
-            _ => vec![],
-        }
+        Self::config_path().into_iter().collect()
     }
 
     fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>> {
@@ -67,8 +77,6 @@ impl AppAdapter for GlazeWm {
     }
 
     fn reload(&self) -> Result<ReloadOutcome> {
-        // `glazewm command wm-reload-config` would be run here.
-        // For v0.2 it's logged as deferred.
         Ok(ReloadOutcome { deferred: 1, ..Default::default() })
     }
 }
