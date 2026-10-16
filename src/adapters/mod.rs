@@ -2,6 +2,7 @@
 
 pub mod cava;
 pub mod chronoterm;
+pub mod fastfetch;
 pub mod glazewm;
 pub mod starship;
 pub mod windows_accent;
@@ -38,6 +39,7 @@ pub enum RegistryData {
 }
 
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct ReloadOutcome {
     pub live_reload: usize,
     pub restarted: usize,
@@ -47,6 +49,7 @@ pub struct ReloadOutcome {
 
 pub trait AppAdapter: Send + Sync {
     fn id(&self) -> &'static str;
+    #[allow(dead_code)]
     fn display_name(&self) -> &'static str;
     fn detect(&self) -> Vec<PathBuf>;
     fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>>;
@@ -289,4 +292,6 @@ pub fn remove_block(original: &str, marker_open: &str, marker_close: &str) -> St
     }
     original.to_string()
 }
+
+
 

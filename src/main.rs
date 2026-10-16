@@ -10,9 +10,10 @@ mod palette;
 mod watcher;
 
 use adapters::{
-    cava::Cava, chronoterm::Chronoterm, glazewm::GlazeWm,
-    starship::Starship, windows_accent::WindowsAccent,
-    windows_terminal::WindowsTerminal, yasb::Yasb, AppAdapter,
+    cava::Cava, chronoterm::Chronoterm, fastfetch::Fastfetch,
+    glazewm::GlazeWm, starship::Starship,
+    windows_accent::WindowsAccent, windows_terminal::WindowsTerminal,
+    yasb::Yasb, AppAdapter,
 };
 use anyhow::Result;
 use color::AnsiMode;
@@ -78,6 +79,7 @@ fn build_adapters(cfg: &config::Config) -> Vec<Box<dyn AppAdapter>> {
         Box::new(GlazeWm),
         Box::new(Yasb),
         Box::new(WindowsAccent),
+        Box::new(Fastfetch),
     ]
 }
 
@@ -340,5 +342,6 @@ fn main() -> Result<()> {
         }
     });
 }
+
 
 
