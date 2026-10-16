@@ -9,8 +9,9 @@ mod palette;
 mod watcher;
 
 use adapters::{
-    cava::Cava, chronoterm::Chronoterm, starship::Starship,
-    windows_terminal::WindowsTerminal, AppAdapter,
+    cava::Cava, chronoterm::Chronoterm, glazewm::GlazeWm,
+    starship::Starship, windows_terminal::WindowsTerminal,
+    yasb::Yasb, AppAdapter,
 };
 use anyhow::Result;
 use color::AnsiMode;
@@ -73,6 +74,8 @@ fn build_adapters(cfg: &config::Config) -> Vec<Box<dyn AppAdapter>> {
         Box::new(Chronoterm),
         Box::new(Cava),
         Box::new(Starship),
+        Box::new(GlazeWm),
+        Box::new(Yasb),
     ]
 }
 
@@ -335,3 +338,4 @@ fn main() -> Result<()> {
         }
     });
 }
+

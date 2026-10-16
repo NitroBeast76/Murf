@@ -2,8 +2,10 @@
 
 pub mod cava;
 pub mod chronoterm;
+pub mod glazewm;
 pub mod starship;
 pub mod windows_terminal;
+pub mod yasb;
 
 use crate::palette::Palette;
 use anyhow::Result;
@@ -214,3 +216,45 @@ pub fn inject_section(original: &str, marker: &str, body: &str) -> String {
     out.push('\n');
     out
 }
+
+/// Insert `body` between markers at the very top of `original`, after
+/// any UTF-8 BOM. If the markers already exist, replaces between
+/// them wherever they are.
+pub fn inject_at_top(
+    original: &str,
+    marker_open: &str,
+    marker_close: &str,
+    body: &str,
+) -> String {
+    if let Some(start) = original.find(marker_open) {
+        if let Some(rel_end) = original[start + marker_open.len()..].find(marker_close) {
+            let close_start = start + marker_open.len() + rel_end;
+            let close_end = close_start + marker_close.len();
+            return format!(
+                "{}{}\n{}\n{}{}",
+                &original[..start],
+                marker_open,
+                body.trim_end(),
+                marker_close,
+                &original[close_end..]
+            );
+        }
+    }
+
+    let bom = "\u{FEFF}";
+    let (prefix, rest) = if original.starts_with(bom) {
+        (bom, &original[bom.len()..])
+    } else {
+        ("", original)
+    };
+
+    format!(
+        "{}{}\n{}\n{}\n{}",
+        prefix,
+        marker_open,
+        body.trim_end(),
+        marker_close,
+        rest
+    )
+}
+
