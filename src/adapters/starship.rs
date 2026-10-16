@@ -1,11 +1,11 @@
 // Starship adapter.
 //
-// Emits the full set of color names a Catppuccin/Tokyo-Night-style
-// format string references, so segment backgrounds and foregrounds
-// resolve to Murf colors. Forces the root palette = "murf" setting.
+// Every value in the emitted palette is derived from the current
+// matugen palette: surfaces from the background luminance ramp,
+// accents from primary hue rotations. No canonical Catppuccin hues.
 
 use super::{home_dir, inject_section, AppAdapter, ReloadOutcome, WriteOp};
-use crate::color::semantic_ansi;
+use crate::color::{starship_accents, surface_ramp};
 use crate::palette::Palette;
 use anyhow::{Context, Result};
 use std::fs;
@@ -43,24 +43,22 @@ impl AppAdapter for Starship {
         let primary = palette.hex_or("primary", "#ffffff");
         let error   = palette.hex_or("error",   "#ff0000");
         let bg      = palette.hex_or("background", "#000000");
-        let ansi = semantic_ansi(&primary, &error, &bg, palette.is_dark);
 
-        // The full Catppuccin-compatible name set. Every name maps
-        // to a Murf M3 role or derived ANSI value. This covers the
-        // standard segment style names used by community starship
-        // configs (crust, peach, sapphire, lavender, etc.).
+        let surfaces = surface_ramp(&bg);
+        let accents  = starship_accents(&primary, &error, palette.is_dark);
+
         let body = format!(
             "[palettes.{name}]\n\
              \n\
-             # Dark-to-light surfaces\n\
+             # Surfaces (luminance ramp from background)\n\
              crust      = \"{crust}\"\n\
              mantle     = \"{mantle}\"\n\
              base       = \"{base}\"\n\
-             surface0   = \"{surface0}\"\n\
-             surface1   = \"{surface1}\"\n\
-             surface2   = \"{surface2}\"\n\
+             surface0   = \"{s0}\"\n\
+             surface1   = \"{s1}\"\n\
+             surface2   = \"{s2}\"\n\
              \n\
-             # Text\n\
+             # Text (M3 roles)\n\
              text       = \"{text}\"\n\
              subtext1   = \"{subtext1}\"\n\
              subtext0   = \"{subtext0}\"\n\
@@ -68,7 +66,7 @@ impl AppAdapter for Starship {
              overlay1   = \"{overlay1}\"\n\
              overlay2   = \"{overlay2}\"\n\
              \n\
-             # Accents\n\
+             # Accents (hue rotations of primary)\n\
              rosewater  = \"{rosewater}\"\n\
              flamingo   = \"{flamingo}\"\n\
              pink       = \"{pink}\"\n\
@@ -84,7 +82,7 @@ impl AppAdapter for Starship {
              blue       = \"{blue}\"\n\
              lavender   = \"{lavender}\"\n\
              \n\
-             # M3 role aliases (for reference)\n\
+             # M3 role aliases\n\
              primary    = \"{primary}\"\n\
              secondary  = \"{secondary}\"\n\
              tertiary   = \"{tertiary}\"\n\
@@ -93,39 +91,35 @@ impl AppAdapter for Starship {
              error      = \"{error}\"",
             name = PALETTE_NAME,
 
-            // Surfaces, dark → light
-            crust    = palette.hex_or("surface_container_lowest", "#0a0a0a"),
-            mantle   = palette.hex_or("surface_container_low",    "#111111"),
-            base     = palette.hex_or("surface",                  "#181818"),
-            surface0 = palette.hex_or("surface_container",        "#1e1e1e"),
-            surface1 = palette.hex_or("surface_container_high",   "#242424"),
-            surface2 = palette.hex_or("surface_container_highest","#2a2a2a"),
+            crust = surfaces.crust,
+            mantle = surfaces.mantle,
+            base = surfaces.base,
+            s0 = surfaces.surface0,
+            s1 = surfaces.surface1,
+            s2 = surfaces.surface2,
 
-            // Text layers
             text     = palette.hex_or("on_surface",         "#ffffff"),
             subtext1 = palette.hex_or("on_surface_variant", "#dddddd"),
-            subtext0 = palette.hex_or("outline",            "#bbbbbb"),
-            overlay0 = palette.hex_or("outline_variant",    "#999999"),
-            overlay1 = palette.hex_or("outline",            "#888888"),
-            overlay2 = palette.hex_or("outline",            "#777777"),
+            subtext0 = palette.hex_or("on_surface_variant", "#bbbbbb"),
+            overlay0 = palette.hex_or("outline_variant",    "#888888"),
+            overlay1 = palette.hex_or("outline",            "#777777"),
+            overlay2 = palette.hex_or("outline",            "#666666"),
 
-            // Accents
-            rosewater = palette.hex_or("on_primary",         "#ffe0e0"),
-            flamingo  = palette.hex_or("error_container",    "#ffaaaa"),
-            pink      = palette.hex_or("tertiary_container", "#ffccee"),
-            mauve     = ansi.purple.clone(),
-            red       = ansi.red.clone(),
-            maroon    = palette.hex_or("error_container",    "#cc6666"),
-            peach     = palette.hex_or("secondary",          "#ffaa88"),
-            yellow    = ansi.yellow.clone(),
-            green     = ansi.green.clone(),
-            teal      = ansi.cyan.clone(),
-            sky       = palette.hex_or("tertiary",           "#aaddff"),
-            sapphire  = ansi.blue.clone(),
-            blue      = primary.clone(),
-            lavender  = palette.hex_or("tertiary",           "#ccccff"),
+            rosewater = accents.rosewater,
+            flamingo  = accents.flamingo,
+            pink      = accents.pink,
+            mauve     = accents.mauve,
+            red       = accents.red,
+            maroon    = accents.maroon,
+            peach     = accents.peach,
+            yellow    = accents.yellow,
+            green     = accents.green,
+            teal      = accents.teal,
+            sky       = accents.sky,
+            sapphire  = accents.sapphire,
+            blue      = accents.blue,
+            lavender  = accents.lavender,
 
-            // M3 role aliases
             primary    = primary.clone(),
             secondary  = palette.hex_or("secondary",   "#cccccc"),
             tertiary   = palette.hex_or("tertiary",    "#aaaaaa"),

@@ -247,3 +247,134 @@ pub fn material_ansi(
         bright_purple: bright_purple.to_string(),
     }
 }
+
+// ---------- Starship / Catppuccin-name derivations ----------
+//
+// Starship's community configs use the Catppuccin colour names
+// (crust, mantle, base, surface0-2, text, subtext, overlay, and 14
+// accents). None of these map cleanly to M3 roles. Instead:
+//
+// - Surfaces are a luminance ramp walked downward and upward from
+//   the palette's `background`. Same hue, distinct lightness.
+// - Accents are hue rotations of `primary`. No canonical hues.
+//   `red` uses the M3 error role, which is fixed by matugen and
+//   thus already wallpaper-derived (M3 rotates error toward the
+//   seed).
+
+pub struct SurfaceRamp {
+    pub crust: String,
+    pub mantle: String,
+    pub base: String,
+    pub surface0: String,
+    pub surface1: String,
+    pub surface2: String,
+}
+
+pub fn surface_ramp(background_hex: &str) -> SurfaceRamp {
+    let c = hex_to_oklch(background_hex).unwrap_or(Oklch { l: 0.5, c: 0.0, h: 0.0 });
+
+    let make = |delta: f32| -> String {
+        oklch_to_hex(&Oklch {
+            l: (c.l + delta).clamp(0.02, 0.98),
+            c: (c.c * 0.9).max(0.01),
+            h: c.h,
+        })
+    };
+
+    SurfaceRamp {
+        crust:    make(-0.10),
+        mantle:   make(-0.05),
+        base:     make(0.00),
+        surface0: make(0.04),
+        surface1: make(0.08),
+        surface2: make(0.12),
+    }
+}
+
+pub struct StarshipAccents {
+    pub rosewater: String,
+    pub flamingo: String,
+    pub pink: String,
+    pub mauve: String,
+    pub red: String,
+    pub maroon: String,
+    pub peach: String,
+    pub yellow: String,
+    pub green: String,
+    pub teal: String,
+    pub sky: String,
+    pub sapphire: String,
+    pub blue: String,
+    pub lavender: String,
+}
+
+/// Accent hue offsets from the seed (primary) hue, plus lightness and
+/// chroma for dark and light palettes respectively.
+const STARSHIP_ACCENT_TABLE: &[(&str, f32, f32, f32, f32, f32)] = &[
+    // name       offset  dark_L dark_C light_L light_C
+    ("rosewater", 340.0, 0.92, 0.06, 0.55, 0.06),
+    ("flamingo",  355.0, 0.82, 0.14, 0.50, 0.14),
+    ("pink",      320.0, 0.80, 0.16, 0.48, 0.16),
+    ("mauve",     285.0, 0.76, 0.16, 0.45, 0.16),
+    ("maroon",     15.0, 0.60, 0.18, 0.40, 0.16),
+    ("peach",      30.0, 0.80, 0.15, 0.50, 0.14),
+    ("yellow",     65.0, 0.84, 0.15, 0.55, 0.14),
+    ("green",     125.0, 0.74, 0.16, 0.48, 0.16),
+    ("teal",      155.0, 0.78, 0.13, 0.48, 0.13),
+    ("sky",       190.0, 0.84, 0.10, 0.60, 0.10),
+    ("sapphire",  215.0, 0.72, 0.15, 0.48, 0.15),
+    ("blue",      235.0, 0.68, 0.16, 0.45, 0.16),
+    ("lavender",  265.0, 0.76, 0.15, 0.48, 0.15),
+];
+
+pub fn starship_accents(seed_hex: &str, error_hex: &str, is_dark: bool) -> StarshipAccents {
+    let seed = hex_to_oklch(seed_hex).unwrap_or(Oklch { l: 0.5, c: 0.1, h: 0.0 });
+    let h = seed.h;
+
+    let make = |offset: f32, ld: f32, cd: f32, ll: f32, cl: f32| -> String {
+        let hue = (h + offset).rem_euclid(360.0);
+        let (l, c) = if is_dark { (ld, cd) } else { (ll, cl) };
+        oklch_to_hex(&Oklch { l, c, h: hue })
+    };
+
+    let mut rosewater = String::new();
+    let mut flamingo  = String::new();
+    let mut pink      = String::new();
+    let mut mauve     = String::new();
+    let mut maroon    = String::new();
+    let mut peach     = String::new();
+    let mut yellow    = String::new();
+    let mut green     = String::new();
+    let mut teal      = String::new();
+    let mut sky       = String::new();
+    let mut sapphire  = String::new();
+    let mut blue      = String::new();
+    let mut lavender  = String::new();
+
+    for (name, off, ld, cd, ll, cl) in STARSHIP_ACCENT_TABLE {
+        let v = make(*off, *ld, *cd, *ll, *cl);
+        match *name {
+            "rosewater" => rosewater = v,
+            "flamingo"  => flamingo = v,
+            "pink"      => pink = v,
+            "mauve"     => mauve = v,
+            "maroon"    => maroon = v,
+            "peach"     => peach = v,
+            "yellow"    => yellow = v,
+            "green"     => green = v,
+            "teal"      => teal = v,
+            "sky"       => sky = v,
+            "sapphire"  => sapphire = v,
+            "blue"      => blue = v,
+            "lavender"  => lavender = v,
+            _ => {}
+        }
+    }
+
+    StarshipAccents {
+        rosewater, flamingo, pink, mauve,
+        red: error_hex.to_string(), // exception: fixed M3 error
+        maroon, peach, yellow, green, teal, sky,
+        sapphire, blue, lavender,
+    }
+}
