@@ -12,7 +12,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -209,3 +209,4 @@ pub fn recover() -> Result<RecoveryResult> {
     let _ = fs::remove_file(&path);
     Ok(RecoveryResult::RolledBack { restored, failed })
 }
+

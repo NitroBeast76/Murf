@@ -178,3 +178,39 @@ pub fn remove_block(original: &str, marker_open: &str, marker_close: &str) -> St
     }
     original.to_string()
 }
+
+/// Replace the block between `open` and `close` markers with `body`,
+/// or append a new block if the markers are absent. The markers
+/// themselves are preserved.
+pub fn inject_section(original: &str, marker: &str, body: &str) -> String {
+    let open = marker;
+    let close = marker.replace("<murf>", "</murf>");
+
+    if let Some(start_idx) = original.find(open) {
+        if let Some(rel_end) = original[start_idx + open.len()..].find(&close) {
+            let close_start = start_idx + open.len() + rel_end;
+            let close_end = close_start + close.len();
+            let before = &original[..start_idx];
+            let after = &original[close_end..];
+            return format!(
+                "{}{}\n{}\n{}{}",
+                before, open, body.trim_end(), close, after
+            );
+        }
+    }
+
+    let mut out = original.to_string();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(open);
+    out.push('\n');
+    out.push_str(body.trim_end());
+    out.push('\n');
+    out.push_str(&close);
+    out.push('\n');
+    out
+}
