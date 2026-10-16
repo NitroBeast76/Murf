@@ -248,18 +248,13 @@ pub fn material_ansi(
     }
 }
 
-// ---------- Starship / Catppuccin-name derivations ----------
+
+// ---------- Starship palette ----------
 //
-// Starship's community configs use the Catppuccin colour names
-// (crust, mantle, base, surface0-2, text, subtext, overlay, and 14
-// accents). None of these map cleanly to M3 roles. Instead:
-//
-// - Surfaces are a luminance ramp walked downward and upward from
-//   the palette's `background`. Same hue, distinct lightness.
-// - Accents are hue rotations of `primary`. No canonical hues.
-//   `red` uses the M3 error role, which is fixed by matugen and
-//   thus already wallpaper-derived (M3 rotates error toward the
-//   seed).
+// Every value comes from the current matugen palette. No hue
+// rotations, no invented colours. Names that have no distinct
+// role in the palette share a value with a related name — that
+// is honest: the wallpaper only has so many hue families.
 
 pub struct SurfaceRamp {
     pub crust: String,
@@ -308,73 +303,45 @@ pub struct StarshipAccents {
     pub lavender: String,
 }
 
-/// Accent hue offsets from the seed (primary) hue, plus lightness and
-/// chroma for dark and light palettes respectively.
-const STARSHIP_ACCENT_TABLE: &[(&str, f32, f32, f32, f32, f32)] = &[
-    // name       offset  dark_L dark_C light_L light_C
-    ("rosewater", 340.0, 0.92, 0.06, 0.55, 0.06),
-    ("flamingo",  355.0, 0.82, 0.14, 0.50, 0.14),
-    ("pink",      320.0, 0.80, 0.16, 0.48, 0.16),
-    ("mauve",     285.0, 0.76, 0.16, 0.45, 0.16),
-    ("maroon",     15.0, 0.60, 0.18, 0.40, 0.16),
-    ("peach",      30.0, 0.80, 0.15, 0.50, 0.14),
-    ("yellow",     65.0, 0.84, 0.15, 0.55, 0.14),
-    ("green",     125.0, 0.74, 0.16, 0.48, 0.16),
-    ("teal",      155.0, 0.78, 0.13, 0.48, 0.13),
-    ("sky",       190.0, 0.84, 0.10, 0.60, 0.10),
-    ("sapphire",  215.0, 0.72, 0.15, 0.48, 0.15),
-    ("blue",      235.0, 0.68, 0.16, 0.45, 0.16),
-    ("lavender",  265.0, 0.76, 0.15, 0.48, 0.15),
-];
-
-pub fn starship_accents(seed_hex: &str, error_hex: &str, is_dark: bool) -> StarshipAccents {
-    let seed = hex_to_oklch(seed_hex).unwrap_or(Oklch { l: 0.5, c: 0.1, h: 0.0 });
-    let h = seed.h;
-
-    let make = |offset: f32, ld: f32, cd: f32, ll: f32, cl: f32| -> String {
-        let hue = (h + offset).rem_euclid(360.0);
-        let (l, c) = if is_dark { (ld, cd) } else { (ll, cl) };
-        oklch_to_hex(&Oklch { l, c, h: hue })
+/// Map the Catppuccin-style names onto the M3 roles matugen actually
+/// produced. Hues are whatever the wallpaper has, not canonical.
+pub fn starship_accents(palette: &std::collections::BTreeMap<String, crate::palette::Color>) -> StarshipAccents {
+    let get = |role: &str, fallback: &str| -> String {
+        palette
+            .get(role)
+            .map(|c| c.hex.clone())
+            .unwrap_or_else(|| fallback.to_string())
     };
 
-    let mut rosewater = String::new();
-    let mut flamingo  = String::new();
-    let mut pink      = String::new();
-    let mut mauve     = String::new();
-    let mut maroon    = String::new();
-    let mut peach     = String::new();
-    let mut yellow    = String::new();
-    let mut green     = String::new();
-    let mut teal      = String::new();
-    let mut sky       = String::new();
-    let mut sapphire  = String::new();
-    let mut blue      = String::new();
-    let mut lavender  = String::new();
+    // Six colour families matugen gives us, in roughly warm-to-cool
+    // order of what they usually land on:
+    //   error     — the M3 error role (usually a red/danger)
+    //   tertiary  — rotated ~+60° from primary
+    //   primary   — the seed itself
+    //   secondary — a muted sibling of primary
+    //   secondary_container / tertiary_container — lighter variants
+    //
+    // We only have these to work with. Names without a distinct
+    // slot reuse one.
 
-    for (name, off, ld, cd, ll, cl) in STARSHIP_ACCENT_TABLE {
-        let v = make(*off, *ld, *cd, *ll, *cl);
-        match *name {
-            "rosewater" => rosewater = v,
-            "flamingo"  => flamingo = v,
-            "pink"      => pink = v,
-            "mauve"     => mauve = v,
-            "maroon"    => maroon = v,
-            "peach"     => peach = v,
-            "yellow"    => yellow = v,
-            "green"     => green = v,
-            "teal"      => teal = v,
-            "sky"       => sky = v,
-            "sapphire"  => sapphire = v,
-            "blue"      => blue = v,
-            "lavender"  => lavender = v,
-            _ => {}
-        }
-    }
+    let red       = get("error",                    "#ff0000");
+    let maroon    = get("error_container",          &red);
+    let peach     = get("primary",                  "#ffaa88");
+    let yellow    = get("secondary",                "#ffcc44");
+    let green     = get("tertiary",                 "#44cc44");
+    let teal      = get("tertiary_container",       &green);
+    let sky       = get("secondary_container",      &yellow);
+    let sapphire  = get("primary_container",        &peach);
+    let blue      = get("primary_fixed_dim",        &peach);
+    let lavender  = get("tertiary_fixed",           &green);
+    let mauve     = get("tertiary_fixed_dim",       &green);
+    let pink      = get("on_primary_container",     &peach);
+    let rosewater = get("on_secondary_container",   &yellow);
+    let flamingo  = get("on_error_container",       &red);
 
     StarshipAccents {
         rosewater, flamingo, pink, mauve,
-        red: error_hex.to_string(), // exception: fixed M3 error
-        maroon, peach, yellow, green, teal, sky,
-        sapphire, blue, lavender,
+        red, maroon, peach, yellow, green, teal,
+        sky, sapphire, blue, lavender,
     }
 }

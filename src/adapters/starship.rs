@@ -45,7 +45,7 @@ impl AppAdapter for Starship {
         let bg      = palette.hex_or("background", "#000000");
 
         let surfaces = surface_ramp(&bg);
-        let accents  = starship_accents(&primary, &error, palette.is_dark);
+        let accents  = starship_accents(&palette.roles);
 
         let body = format!(
             "[palettes.{name}]\n\
@@ -201,3 +201,4 @@ fn set_root_palette(text: &str, name: &str) -> String {
     if text.ends_with('\n') { s.push('\n'); }
     s
 }
+
