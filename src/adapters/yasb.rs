@@ -24,32 +24,6 @@ impl Yasb {
     fn colors_path() -> Option<PathBuf> {
         Some(Self::config_dir()?.join(COLORS_FILE))
     }
-    fn yasb_config_path() -> Option<PathBuf> {
-        Some(Self::config_dir()?.join("config.yaml"))
-    }
-
-    /// Read `watch_stylesheet` from YASB's config.yaml. Default true if
-    /// unset — YASB ships with watching on.
-    fn watching_stylesheet() -> bool {
-        let Some(path) = Self::yasb_config_path() else { return true };
-        let Ok(text) = fs::read_to_string(&path) else { return true };
-
-        for line in text.lines() {
-            let t = line.trim();
-            // Match `watch_stylesheet: true` / `watch_stylesheet: false`
-            // and the plural spelling some versions use.
-            let rest = if let Some(r) = t.strip_prefix("watch_stylesheet:") {
-                r
-            } else if let Some(r) = t.strip_prefix("watch_stylesheets:") {
-                r
-            } else {
-                continue;
-            };
-            let v = rest.trim().trim_end_matches(',');
-            return !v.eq_ignore_ascii_case("false");
-        }
-        true
-    }
 }
 
 impl AppAdapter for Yasb {
@@ -124,42 +98,26 @@ impl AppAdapter for Yasb {
     }
 
     fn reload(&self) -> Result<ReloadOutcome> {
-        // Two strategies:
-        //  - watcher on  → touch styles.css to fire FILE_ACTION_MODIFIED
-        //  - watcher off → kill yasb.exe and relaunch
-        if Self::watching_stylesheet() {
-            let Some(styles) = Self::styles_path() else {
-                return Ok(ReloadOutcome { skipped: 1, ..Default::default() });
-            };
-            match fs::read(&styles).and_then(|bytes| fs::write(&styles, bytes)) {
-                Ok(_) => Ok(ReloadOutcome { live_reload: 1, ..Default::default() }),
-                Err(e) => {
-                    tracing::warn!(error = %e, "could not touch styles.css");
-                    Ok(ReloadOutcome { deferred: 1, ..Default::default() })
+        // YASB has no reliable live reload. Kill and relaunch.
+        let _ = Command::new("taskkill")
+            .args(["/IM", "yasb.exe", "/F"])
+            .output();
+        std::thread::sleep(std::time::Duration::from_millis(400));
+
+        for bin in ["yasb.exe", "yasb"] {
+            match Command::new("cmd")
+                .args(["/C", "start", "", bin])
+                .spawn()
+            {
+                Ok(_) => {
+                    tracing::info!(binary = bin, "yasb restarted");
+                    return Ok(ReloadOutcome { restarted: 1, ..Default::default() });
                 }
+                Err(_) => continue,
             }
-        } else {
-            restart_yasb()
         }
+
+        tracing::warn!("could not relaunch yasb; check PATH");
+        Ok(ReloadOutcome { deferred: 1, ..Default::default() })
     }
-}
-
-fn restart_yasb() -> Result<ReloadOutcome> {
-    // Kill any running yasb.exe, then relaunch.
-    let _ = Command::new("taskkill").args(["/IM", "yasb.exe", "/F"]).output();
-    std::thread::sleep(std::time::Duration::from_millis(400));
-
-    let candidates = ["yasb.exe", "yasb"];
-    for bin in candidates {
-        match Command::new("cmd").args(["/C", "start", "", bin]).spawn() {
-            Ok(_) => {
-                tracing::info!(binary = bin, "yasb restarted");
-                return Ok(ReloadOutcome { restarted: 1, ..Default::default() });
-            }
-            Err(_) => continue,
-        }
-    }
-
-    tracing::warn!("could not relaunch yasb; check PATH");
-    Ok(ReloadOutcome { deferred: 1, ..Default::default() })
 }
