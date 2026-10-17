@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "murf"
 version = "0.1.0"
 edition = "2021"
@@ -25,3 +25,4 @@ anyhow = "1"
 strip = true
 lto = true
 codegen-units = 1
+
