@@ -21,6 +21,7 @@ use color::AnsiMode;
 use global_hotkey::{hotkey::{Code, HotKey, Modifiers}, GlobalHotKeyEvent, GlobalHotKeyManager};
 use std::fs;
 use std::path::PathBuf;
+use std::os::windows::process::CommandExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -282,10 +283,10 @@ fn main() -> Result<()> {
                     }
                 } else if e.id == cfg_id {
                     let path = config::config_path();
-                    let _ = std::process::Command::new("cmd").args(["/C", "start", "", &path.to_string_lossy()]).spawn();
+                    let _ = std::process::Command::new("cmd").creation_flags(0x08000000).args(["/C", "start", "", &path.to_string_lossy()]).spawn();
                 } else if e.id == logs_id {
                     let dir = std::env::var("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Murf").join("logs")).unwrap_or_default();
-                    let _ = std::process::Command::new("cmd").args(["/C", "start", "", &dir.to_string_lossy()]).spawn();
+                    let _ = std::process::Command::new("cmd").creation_flags(0x08000000).args(["/C", "start", "", &dir.to_string_lossy()]).spawn();
                 } else if e.id == about_id {
                     registry::show_message_box("Murf", &format!("Murf {}\n\nConfig: {}", VERSION, config::config_path().display()));
                 } else if e.id == quit_id {
@@ -320,6 +321,7 @@ fn main() -> Result<()> {
         }
     });
 }
+
 
 
 

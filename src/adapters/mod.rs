@@ -301,6 +301,7 @@ pub fn remove_block(original: &str, marker_open: &str, marker_close: &str) -> St
 /// Check if a process is currently running using tasklist.
 pub fn is_process_running(exe_name: &str) -> bool {
     use std::process::Command;
+use std::os::windows::process::CommandExt;
     let output = Command::new("tasklist")
         .args(["/FI", &format!("IMAGENAME eq {}", exe_name), "/NH"])
         .output();
@@ -318,6 +319,7 @@ pub fn is_process_running(exe_name: &str) -> bool {
 /// but ONLY if it was already running.
 pub fn restart_process(exe_name: &str, args: &[&str]) -> Result<ReloadOutcome> {
     use std::process::Command;
+use std::os::windows::process::CommandExt;
     
     if !is_process_running(exe_name) {
         tracing::debug!(exe = exe_name, "not running, skipping restart");
@@ -333,7 +335,7 @@ pub fn restart_process(exe_name: &str, args: &[&str]) -> Result<ReloadOutcome> {
     std::thread::sleep(std::time::Duration::from_millis(200));
 
     // 3. Relaunch
-    let mut cmd = Command::new("cmd");
+    let mut cmd = Command::new("cmd");`r`n    cmd.creation_flags(0x08000000);
     cmd.args(["/C", "start", ""]);
     cmd.arg(exe_name);
     cmd.args(args);
@@ -349,6 +351,7 @@ pub fn restart_process(exe_name: &str, args: &[&str]) -> Result<ReloadOutcome> {
         }
     }
 }
+
 
 
 

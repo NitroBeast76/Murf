@@ -4,6 +4,7 @@ use crate::palette::{Color, Palette};
 use anyhow::{anyhow, Context, Result};
 use std::collections::BTreeMap;
 use std::process::Command;
+use std::os::windows::process::CommandExt;
 
 pub fn generate(
     image_path: &str,
@@ -11,7 +12,7 @@ pub fn generate(
     scheme_type: &str,
     contrast: f32,
 ) -> Result<Palette> {
-    let output = Command::new("matugen")
+    let output = Command::new("matugen").creation_flags(0x08000000)
         .args([
             "image",
             image_path,
@@ -88,7 +89,8 @@ fn infer_is_dark(roles: &BTreeMap<String, Color>) -> bool {
 /// Current wallpaper path from the Windows registry.
 pub fn current_wallpaper() -> Option<String> {
     use std::process::Command;
-    let out = Command::new("reg")
+use std::os::windows::process::CommandExt;
+    let out = Command::new("reg").creation_flags(0x08000000)
         .args(["query", "HKCU\\Control Panel\\Desktop", "/v", "Wallpaper"])
         .output()
         .ok()?;
@@ -106,3 +108,4 @@ pub fn current_wallpaper() -> Option<String> {
     }
     None
 }
+
