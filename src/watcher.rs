@@ -63,7 +63,7 @@ fn watch_loop(tx: Sender<String>, settle_delay_ms: u64) -> Result<()> {
 }
 
 fn read_wallpaper() -> Option<String> {
-    let out = std::process::Command::new("reg")
+    let out = std::process::Command::new("reg").creation_flags(0x08000000).creation_flags(0x08000000)
         .args(["query", "HKCU\\Control Panel\\Desktop", "/v", "Wallpaper"])
         .output()
         .ok()?;
@@ -81,4 +81,5 @@ fn read_wallpaper() -> Option<String> {
     }
     None
 }
+
 
