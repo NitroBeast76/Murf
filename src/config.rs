@@ -20,9 +20,17 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct General {
     pub version: u32,
+    #[serde(default = "default_settle_delay_ms", alias = "settle_delay_secs")]
     pub settle_delay_ms: u64,
+    #[serde(default = "default_startup_delay_secs")]
+    pub startup_delay_secs: u64,
+    #[serde(default = "default_log_level")]
     pub log_level: String,
 }
+
+fn default_settle_delay_ms() -> u64 { 500 }
+fn default_startup_delay_secs() -> u64 { 5 }
+fn default_log_level() -> String { "info".into() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaletteCfg {
@@ -46,6 +54,8 @@ pub struct AppCfg {
     pub reload: String,
     #[serde(default)]
     pub reload_cmd: Vec<String>,
+    #[serde(default)]
+    pub logo_source: Option<String>,
 }
 
 impl Default for Config {
@@ -54,6 +64,7 @@ impl Default for Config {
             general: General {
                 version: 1,
                 settle_delay_ms: 500,
+                startup_delay_secs: 5,
                 log_level: "info".into(),
             },
             palette: PaletteCfg {
@@ -163,4 +174,3 @@ fn expand_env(s: &str) -> String {
     }
     out
 }
-
