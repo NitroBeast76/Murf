@@ -114,3 +114,4 @@ impl AppAdapter for Fastfetch {
         Ok(ReloadOutcome { deferred: 1, ..Default::default() })
     }
 }
+
