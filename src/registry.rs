@@ -4,7 +4,7 @@ use crate::adapters::{RegistryData, RegistryHive};
 use anyhow::{anyhow, Result};
 use windows::core::PCWSTR;
 use windows::Win32::System::Registry::{
-    HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_BINARY, REG_DWORD,
+    HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_BINARY, REG_DWORD, REG_SZ,
     REG_VALUE_TYPE, RegCloseKey, RegOpenKeyExW, RegQueryValueExW,
     RegSetValueExW,
 };
@@ -44,6 +44,11 @@ pub fn write(
         let (reg_type, bytes): (REG_VALUE_TYPE, Vec<u8>) = match data {
             RegistryData::Dword(v) => (REG_DWORD, v.to_le_bytes().to_vec()),
             RegistryData::Binary(v) => (REG_BINARY, v.clone()),
+            RegistryData::String(s) => {
+                let mut b: Vec<u8> = s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+                b.extend_from_slice(&[0, 0]); // NUL terminator
+                (REG_SZ, b)
+            }
         };
 
         let status = RegSetValueExW(
@@ -189,3 +194,4 @@ pub fn show_message_box(title: &str, text: &str) {
         );
     }
 }
+

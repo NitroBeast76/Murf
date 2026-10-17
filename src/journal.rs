@@ -33,6 +33,7 @@ pub enum Entry {
 pub enum RegistryBackup {
     Dword(u32),
     Binary(Vec<u8>),
+    String(String),
     Absent,
 }
 
@@ -112,6 +113,7 @@ impl Journal {
         let original = match existing {
             Some(RegistryData::Dword(v)) => Some(RegistryBackup::Dword(v)),
             Some(RegistryData::Binary(v)) => Some(RegistryBackup::Binary(v)),
+            Some(RegistryData::String(v)) => Some(RegistryBackup::String(v)),
             None => Some(RegistryBackup::Absent),
         };
 
@@ -226,6 +228,9 @@ pub fn recover() -> Result<RecoveryResult> {
                     Some(RegistryBackup::Binary(v)) => {
                         crate::registry::write(hive_enum, rpath, value, &RegistryData::Binary(v.clone()))
                     }
+                    Some(RegistryBackup::String(v)) => {
+                        crate::registry::write(hive_enum, rpath, value, &RegistryData::String(v.clone()))
+                    }
                     Some(RegistryBackup::Absent) => {
                         crate::registry::delete(hive_enum, rpath, value)
                     }
@@ -260,3 +265,4 @@ pub fn recover() -> Result<RecoveryResult> {
     let _ = fs::remove_file(&path);
     Ok(RecoveryResult::RolledBack { restored, failed })
 }
+
