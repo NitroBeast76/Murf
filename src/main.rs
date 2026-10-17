@@ -16,7 +16,6 @@ use adapters::{
 };
 use anyhow::Result;
 use color::AnsiMode;
-use image::GenericImageView;
 use global_hotkey::{hotkey::{Code, HotKey, Modifiers}, GlobalHotKeyEvent, GlobalHotKeyManager};
 use std::fs;
 use std::path::PathBuf;
@@ -47,7 +46,7 @@ fn make_icon() -> Icon {
     // filter (Lanczos3) to 32x32 first.
     let resized = image::imageops::resize(&img, 32, 32, image::imageops::FilterType::Lanczos3);
     
-    let rgba = resized.into_rgba8().into_raw();
+    let rgba = resized.into_raw();
     Icon::from_rgba(rgba, 32, 32).expect("valid icon")
 }
 
@@ -319,6 +318,7 @@ fn main() -> Result<()> {
         }
     });
 }
+
 
 
 
