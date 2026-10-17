@@ -2,6 +2,7 @@
 // emits on a channel when the wallpaper has settled.
 
 use anyhow::Result;
+use std::os::windows::process::CommandExt;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
