@@ -173,3 +173,19 @@ pub fn broadcast_setting_change() -> Result<()> {
     }
     Ok(())
 }
+
+pub fn show_message_box(title: &str, text: &str) {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        MessageBoxW, MB_ICONINFORMATION, MB_OK,
+    };
+    let t = to_wide(title);
+    let b = to_wide(text);
+    unsafe {
+        MessageBoxW(
+            None,
+            PCWSTR(b.as_ptr()),
+            PCWSTR(t.as_ptr()),
+            MB_OK | MB_ICONINFORMATION,
+        );
+    }
+}

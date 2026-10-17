@@ -37,6 +37,7 @@ pub enum RegistryHive { CurrentUser }
 pub enum RegistryData {
     Dword(u32),
     Binary(Vec<u8>),
+    String(String),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -348,6 +349,7 @@ pub fn restart_process(exe_name: &str, args: &[&str]) -> Result<ReloadOutcome> {
         }
     }
 }
+
 
 
 
