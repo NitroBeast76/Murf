@@ -32,12 +32,23 @@ fn default_log_level() -> String { "info".into() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaletteCfg {
+    #[serde(default = "default_source")]
     pub source: String,
+    #[serde(default = "default_mode")]
     pub mode: String,
+    #[serde(default = "default_scheme_type")]
     pub scheme_type: String,
+    #[serde(default = "default_contrast")]
     pub contrast: f32,
+    #[serde(default = "default_ansi_mapping")]
     pub ansi_mapping: String,
 }
+
+fn default_source() -> String { "system".into() }
+fn default_mode() -> String { "smart".into() }
+fn default_scheme_type() -> String { "scheme-tonal-spot".into() }
+fn default_contrast() -> f32 { 0.0 }
+fn default_ansi_mapping() -> String { "semantic".into() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppCfg {
@@ -163,4 +174,5 @@ fn expand_env(s: &str) -> String {
     }
     out
 }
+
 

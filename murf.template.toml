@@ -5,30 +5,21 @@
 
 [general]
 version = 1
-# How long to wait after the wallpaper changes before generating colors.
-# Lower is faster, but if you change wallpapers rapidly it might stutter.
 settle_delay_ms = 500
-
-# How long to wait after logging in before Murf applies the theme.
 startup_delay_secs = 5
+log_level = "info"
 
 [palette]
-# mode: "dark", "light", or "smart" (matches wallpaper brightness).
+source = "system"
 mode = "smart"
-
-# scheme_type: "scheme-tonal-spot", "scheme-vibrant", "scheme-expressive", etc.
 scheme_type = "scheme-tonal-spot"
-
-# contrast: -1.0 to 1.0 (0.0 is standard Material Design).
 contrast = 0.0
-
-# ansi_mapping: "semantic" (true reds/greens) or "material" (rotates hues).
 ansi_mapping = "semantic"
 
 # =====================================================================
 #  Application Adapters
 #  Set `enabled = false` to stop Murf from touching an app.
-#  If Murf can't find an app automatically, uncomment `config_path` 
+#  If Murf can't find an app automatically, uncomment `config_path`
 #  and point it directly to the file.
 # =====================================================================
 
@@ -65,4 +56,3 @@ enabled = true
 
 [apps.windows_theme]
 enabled = false
-
