@@ -70,13 +70,7 @@ impl AppAdapter for Chronoterm {
     }
 
     fn reload(&self) -> Result<ReloadOutcome> {
-        super::restart_process("chronoterm.exe", &[])
+        tracing::info!("chronoterm config written; restart chronoterm to see new colors");
+        Ok(ReloadOutcome { deferred: 1, ..Default::default() })
     }
 }
-
-
-
-
-
-
-

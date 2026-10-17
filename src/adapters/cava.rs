@@ -43,8 +43,6 @@ impl AppAdapter for Cava {
         let mut text = fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
 
-        // Strip any earlier include block from the previous adapter
-        // revision.
         if text.contains("murf-colors.ini") {
             text = remove_block(&text, MARKER_OPEN, MARKER_CLOSE);
         }
@@ -84,13 +82,7 @@ impl AppAdapter for Cava {
     }
 
     fn reload(&self) -> Result<ReloadOutcome> {
-        super::restart_process("cava.exe", &[])
+        tracing::info!("cava config written; restart cava to see new colors");
+        Ok(ReloadOutcome { deferred: 1, ..Default::default() })
     }
 }
-
-
-
-
-
-
-

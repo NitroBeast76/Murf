@@ -5,6 +5,8 @@ use crate::palette::Palette;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
+use std::os::windows::process::CommandExt; // <-- ADDED FOR SILENT SPAWNING
 
 pub struct GlazeWm;
 
@@ -43,7 +45,9 @@ impl AppAdapter for GlazeWm {
     }
 
     fn plan(&self, palette: &Palette, cfg: &crate::config::AppCfg) -> Result<Vec<WriteOp>> {
-        let Some(path) = self.detect(cfg).into_iter().next() else { return Ok(vec![]) };
+        let Some(path) = self.detect(cfg).into_iter().next() else {
+            return Ok(vec![]);
+        };
 
         let text = fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
@@ -78,8 +82,6 @@ impl AppAdapter for GlazeWm {
     }
 
     fn reload(&self) -> Result<ReloadOutcome> {
-        use std::process::Command;
-
         let candidates = [
             "glazewm",
             r"C:\Program Files\glzr.io\GlazeWM\cli\glazewm.exe",
@@ -87,6 +89,7 @@ impl AppAdapter for GlazeWm {
 
         for bin in candidates {
             let result = Command::new(bin)
+                .creation_flags(0x08000000) // <-- ADDED FOR SILENT SPAWNING
                 .args(["command", "wm-reload-config"])
                 .output();
             if let Ok(out) = result {
@@ -101,6 +104,3 @@ impl AppAdapter for GlazeWm {
         Ok(ReloadOutcome { deferred: 1, ..Default::default() })
     }
 }
-
-
-
