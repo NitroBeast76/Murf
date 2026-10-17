@@ -310,10 +310,13 @@ fn main() -> Result<()> {
                     // Handle adapter toggles
                     for (id, item) in &adapter_items {
                         if e.id == *item.id() {
-                            let app_cfg = cfg.apps.entry(id.clone()).or_insert_with(config::AppCfg::default);
-                            app_cfg.enabled = item.is_checked();
+                            let enabled = {
+                                let app_cfg = cfg.apps.entry(id.clone()).or_insert_with(config::AppCfg::default);
+                                app_cfg.enabled = item.is_checked();
+                                app_cfg.enabled
+                            };
                             let _ = config::save_config(&cfg);
-                            tracing::info!(adapter = id, enabled = app_cfg.enabled, "adapter toggled");
+                            tracing::info!(adapter = id, enabled = enabled, "adapter toggled");
                             break;
                         }
                     }
@@ -333,3 +336,4 @@ fn main() -> Result<()> {
         }
     });
 }
+
