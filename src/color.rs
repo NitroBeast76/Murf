@@ -90,6 +90,7 @@ pub fn relative_luminance(hex: &str) -> Option<f32> {
 }
 
 /// WCAG contrast ratio between two colors. Range [1.0, 21.0].
+#[allow(dead_code)]
 pub fn contrast_ratio(a: &str, b: &str) -> Option<f32> {
     let la = relative_luminance(a)?;
     let lb = relative_luminance(b)?;
@@ -345,3 +346,4 @@ pub fn starship_accents(palette: &std::collections::BTreeMap<String, crate::pale
         sky, sapphire, blue, lavender,
     }
 }
+

@@ -165,6 +165,7 @@ impl Journal {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum RecoveryResult {
     NoJournal,
     AlreadyCommitted,
@@ -265,4 +266,5 @@ pub fn recover() -> Result<RecoveryResult> {
     let _ = fs::remove_file(&path);
     Ok(RecoveryResult::RolledBack { restored, failed })
 }
+
 
