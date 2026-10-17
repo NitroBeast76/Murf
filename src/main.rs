@@ -41,9 +41,14 @@ enum UserEvent {
 fn make_icon() -> Icon {
     let bytes = include_bytes!("../assets/icon.png");
     let img = image::load_from_memory(bytes).expect("failed to decode icon.png");
-    let (width, height) = img.dimensions();
-    let rgba = img.into_rgba8().into_raw();
-    Icon::from_rgba(rgba, width, height).expect("valid icon")
+    
+    // Tray icons are tiny. If we pass a 256x256 image to Windows, it uses
+    // a fast, ugly downscaler. We resize it ourselves using a high-quality
+    // filter (Lanczos3) to 32x32 first.
+    let resized = image::imageops::resize(&img, 32, 32, image::imageops::FilterType::Lanczos3);
+    
+    let rgba = resized.into_rgba8().into_raw();
+    Icon::from_rgba(rgba, 32, 32).expect("valid icon")
 }
 
 fn ansi_mode_from_str(s: &str) -> AnsiMode {
@@ -314,5 +319,6 @@ fn main() -> Result<()> {
         }
     });
 }
+
 
 
