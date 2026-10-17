@@ -33,11 +33,16 @@ impl AppAdapter for Fastfetch {
         let Some(path) = Self::config_path() else { return Ok(vec![]); };
         let text = fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
 
-        // Parse JSONC. If the file is empty or broken, start fresh.
         let mut json: serde_json::Value = match jsonc_parser::parse_to_value(&text) {
             Ok(Some(v)) => v,
             _ => serde_json::json!({}),
         };
+
+        if !json.is_object() {
+            json = serde_json::json!({});
+        }
+
+        let obj = json.as_object_mut().unwrap();
 
         let l1 = palette.hex_or("primary",             "#ffffff");
         let l2 = palette.hex_or("secondary",           "#cccccc");
@@ -55,11 +60,6 @@ impl AppAdapter for Fastfetch {
         let separator = palette.hex_or("on_surface", "#ffffff");
         let main      = palette.hex_or("on_surface", "#ffffff");
 
-        let obj = json.as_object_mut().unwrap_or_else(|| {
-            *json.as_object_mut().unwrap()
-        });
-
-        // Inject display.color
         let display = obj.entry("display").or_insert(serde_json::json!({}));
         if let Some(d) = display.as_object_mut() {
             d.insert("color".to_string(), serde_json::json!({
@@ -71,7 +71,6 @@ impl AppAdapter for Fastfetch {
             }));
         }
 
-        // Inject logo.color
         let logo = obj.entry("logo").or_insert(serde_json::json!({}));
         if let Some(l) = logo.as_object_mut() {
             l.insert("color".to_string(), serde_json::json!({
