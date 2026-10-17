@@ -15,6 +15,7 @@ pub struct Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct General {
+    #[serde(default = "default_version")]
     pub version: u32,
     #[serde(default = "default_settle_delay_ms", alias = "settle_delay_secs")]
     pub settle_delay_ms: u64,
@@ -24,6 +25,7 @@ pub struct General {
     pub log_level: String,
 }
 
+fn default_version() -> u32 { 1 }
 fn default_settle_delay_ms() -> u64 { 500 }
 fn default_startup_delay_secs() -> u64 { 5 }
 fn default_log_level() -> String { "info".into() }
@@ -161,3 +163,4 @@ fn expand_env(s: &str) -> String {
     }
     out
 }
+

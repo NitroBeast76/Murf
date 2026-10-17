@@ -4,6 +4,7 @@
 # =====================================================================
 
 [general]
+version = 1
 # How long to wait after the wallpaper changes before generating colors.
 # Lower is faster, but if you change wallpapers rapidly it might stutter.
 settle_delay_ms = 500
@@ -64,3 +65,4 @@ enabled = true
 
 [apps.windows_theme]
 enabled = false
+
