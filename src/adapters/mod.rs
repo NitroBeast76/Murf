@@ -295,3 +295,33 @@ pub fn remove_block(original: &str, marker_open: &str, marker_close: &str) -> St
 
 
 
+
+/// Kill a process by exe name and immediately relaunch it.
+pub fn restart_process(exe_name: &str, args: &[&str]) -> Result<()> {
+    use std::process::Command;
+    
+    // 1. Kill
+    let _ = Command::new("taskkill")
+        .args(["/IM", exe_name, "/F"])
+        .output();
+        
+    // 2. Wait a moment for the OS to release file locks
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    // 3. Relaunch
+    let mut cmd = Command::new("cmd");
+    cmd.args(["/C", "start", ""]);
+    cmd.arg(exe_name);
+    cmd.args(args);
+    
+    match cmd.spawn() {
+        Ok(_) => {
+            tracing::info!(exe = exe_name, "restarted process");
+            Ok(())
+        }
+        Err(e) => {
+            tracing::warn!(exe = exe_name, error = %e, "failed to restart");
+            Err(anyhow::anyhow!("failed to restart {}", exe_name))
+        }
+    }
+}

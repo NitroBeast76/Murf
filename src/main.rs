@@ -284,7 +284,7 @@ fn main() -> Result<()> {
         let _ = menu_proxy.send_event(UserEvent::Menu(event));
     }));
 
-    let watcher = watcher::Watcher::start(cfg.general.settle_delay_secs)?;
+    let watcher = watcher::Watcher::start(cfg.general.settle_delay_ms)?;
     let watcher_proxy = event_loop.create_proxy();
     let rx = watcher.rx;
     std::thread::spawn(move || {
@@ -342,6 +342,7 @@ fn main() -> Result<()> {
         }
     });
 }
+
 
 
 

@@ -5,7 +5,6 @@ use crate::palette::Palette;
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 
 pub struct Yasb;
 
@@ -17,6 +16,24 @@ impl Yasb {
     fn config_dir() -> Option<PathBuf> {
         let p = home_dir()?.join(".config").join("yasb");
         if p.exists() { Some(p) } else { None }
+    }
+    fn yasb_config_path() -> Option<PathBuf> {
+        Some(Self::config_dir()?.join("config.yaml"))
+    }
+
+    fn watching_stylesheet() -> bool {
+        let Some(path) = Self::yasb_config_path() else { return true };
+        let Ok(text) = fs::read_to_string(&path) else { return true };
+        for line in text.lines() {
+            let t = line.trim();
+            let rest = if let Some(r) = t.strip_prefix("watch_stylesheet:") {
+                r
+            } else if let Some(r) = t.strip_prefix("watch_stylesheets:") {
+                r
+            } else { continue };
+            return !rest.trim().trim_end_matches(',').eq_ignore_ascii_case("false");
+        }
+        true
     }
     fn styles_path() -> Option<PathBuf> {
         Some(Self::config_dir()?.join("styles.css"))
@@ -98,26 +115,24 @@ impl AppAdapter for Yasb {
     }
 
     fn reload(&self) -> Result<ReloadOutcome> {
-        // YASB has no reliable live reload. Kill and relaunch.
-        let _ = Command::new("taskkill")
-            .args(["/IM", "yasb.exe", "/F"])
-            .output();
-        std::thread::sleep(std::time::Duration::from_millis(400));
-
-        for bin in ["yasb.exe", "yasb"] {
-            match Command::new("cmd")
-                .args(["/C", "start", "", bin])
-                .spawn()
-            {
+        if Self::watching_stylesheet() {
+            let Some(styles) = Self::styles_path() else {
+                return Ok(ReloadOutcome { skipped: 1, ..Default::default() });
+            };
+            match fs::read(&styles).and_then(|bytes| fs::write(&styles, bytes)) {
                 Ok(_) => {
-                    tracing::info!(binary = bin, "yasb restarted");
-                    return Ok(ReloadOutcome { restarted: 1, ..Default::default() });
+                    tracing::info!("yasb styles touched for live reload");
+                    return Ok(ReloadOutcome { live_reload: 1, ..Default::default() });
                 }
-                Err(_) => continue,
+                Err(e) => {
+                    tracing::warn!(error = %e, "touch failed, falling back to restart");
+                }
             }
         }
-
-        tracing::warn!("could not relaunch yasb; check PATH");
-        Ok(ReloadOutcome { deferred: 1, ..Default::default() })
+        
+        super::restart_process("yasb.exe", &[])?;
+        Ok(ReloadOutcome { restarted: 1, ..Default::default() })
     }
 }
+
+

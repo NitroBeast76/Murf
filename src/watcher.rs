@@ -12,10 +12,10 @@ pub struct Watcher {
 }
 
 impl Watcher {
-    pub fn start(settle_delay_secs: u64) -> Result<Self> {
+    pub fn start(settle_delay_ms: u64) -> Result<Self> {
         let (tx, rx) = channel();
         let handle = thread::spawn(move || {
-            if let Err(e) = watch_loop(tx, settle_delay_secs) {
+            if let Err(e) = watch_loop(tx, settle_delay_ms) {
                 tracing::error!(error = %e, "watcher loop exited");
             }
         });
@@ -23,9 +23,9 @@ impl Watcher {
     }
 }
 
-fn watch_loop(tx: Sender<String>, settle_delay_secs: u64) -> Result<()> {
+fn watch_loop(tx: Sender<String>, settle_delay_ms: u64) -> Result<()> {
     let poll_interval = Duration::from_secs(3);
-    let settle = Duration::from_secs(settle_delay_secs);
+    let settle = Duration::from_millis(settle_delay_ms);
 
     let mut last_seen: Option<String> = read_wallpaper();
     let mut last_emitted: Option<String> = None;
@@ -81,3 +81,4 @@ fn read_wallpaper() -> Option<String> {
     }
     None
 }
+

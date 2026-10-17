@@ -20,7 +20,7 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct General {
     pub version: u32,
-    pub settle_delay_secs: u64,
+    pub settle_delay_ms: u64,
     pub log_level: String,
 }
 
@@ -53,7 +53,7 @@ impl Default for Config {
         Config {
             general: General {
                 version: 1,
-                settle_delay_secs: 6,
+                settle_delay_ms: 500,
                 log_level: "info".into(),
             },
             palette: PaletteCfg {
@@ -163,3 +163,4 @@ fn expand_env(s: &str) -> String {
     }
     out
 }
+
