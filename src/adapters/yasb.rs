@@ -130,9 +130,9 @@ impl AppAdapter for Yasb {
             }
         }
         
-        super::restart_process("yasb.exe", &[])?;
-        Ok(ReloadOutcome { restarted: 1, ..Default::default() })
+        super::restart_process("yasb.exe", &[])
     }
 }
+
 
 

@@ -296,10 +296,32 @@ pub fn remove_block(original: &str, marker_open: &str, marker_close: &str) -> St
 
 
 
-/// Kill a process by exe name and immediately relaunch it.
-pub fn restart_process(exe_name: &str, args: &[&str]) -> Result<()> {
+/// Check if a process is currently running using tasklist.
+pub fn is_process_running(exe_name: &str) -> bool {
+    use std::process::Command;
+    let output = Command::new("tasklist")
+        .args(["/FI", &format!("IMAGENAME eq {}", exe_name), "/NH"])
+        .output();
+        
+    match output {
+        Ok(out) => {
+            let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            text.contains(&exe_name.to_lowercase())
+        }
+        Err(_) => false,
+    }
+}
+
+/// Kill a process by exe name and immediately relaunch it,
+/// but ONLY if it was already running.
+pub fn restart_process(exe_name: &str, args: &[&str]) -> Result<ReloadOutcome> {
     use std::process::Command;
     
+    if !is_process_running(exe_name) {
+        tracing::debug!(exe = exe_name, "not running, skipping restart");
+        return Ok(ReloadOutcome { skipped: 1, ..Default::default() });
+    }
+
     // 1. Kill
     let _ = Command::new("taskkill")
         .args(["/IM", exe_name, "/F"])
@@ -317,7 +339,7 @@ pub fn restart_process(exe_name: &str, args: &[&str]) -> Result<()> {
     match cmd.spawn() {
         Ok(_) => {
             tracing::info!(exe = exe_name, "restarted process");
-            Ok(())
+            Ok(ReloadOutcome { restarted: 1, ..Default::default() })
         }
         Err(e) => {
             tracing::warn!(exe = exe_name, error = %e, "failed to restart");
@@ -325,3 +347,4 @@ pub fn restart_process(exe_name: &str, args: &[&str]) -> Result<()> {
         }
     }
 }
+

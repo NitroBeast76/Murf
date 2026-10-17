@@ -80,10 +80,10 @@ impl AppAdapter for Cava {
     }
 
     fn reload(&self) -> Result<ReloadOutcome> {
-        super::restart_process("cava.exe", &[])?;
-        Ok(ReloadOutcome { restarted: 1, ..Default::default() })
+        super::restart_process("cava.exe", &[])
     }
 }
+
 
 
 

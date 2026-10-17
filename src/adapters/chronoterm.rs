@@ -66,10 +66,10 @@ impl AppAdapter for Chronoterm {
     }
 
     fn reload(&self) -> Result<ReloadOutcome> {
-        super::restart_process("chronoterm.exe", &[])?;
-        Ok(ReloadOutcome { restarted: 1, ..Default::default() })
+        super::restart_process("chronoterm.exe", &[])
     }
 }
+
 
 
 
