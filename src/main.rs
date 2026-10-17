@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod adapters;
 mod autostart;
 mod color;
@@ -318,6 +320,7 @@ fn main() -> Result<()> {
         }
     });
 }
+
 
 
 
