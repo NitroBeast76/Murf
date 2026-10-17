@@ -26,15 +26,19 @@ impl AppAdapter for Starship {
     fn id(&self) -> &'static str { "starship" }
     fn display_name(&self) -> &'static str { "Starship" }
 
-    fn detect(&self) -> Vec<PathBuf> {
+    fn detect(&self, cfg: &crate::config::AppCfg) -> Vec<PathBuf> {
+        if let Some(p) = &cfg.config_path {
+            let path = PathBuf::from(p);
+            if path.exists() { return vec![path]; }
+        }
         match Self::config_path() {
             Some(p) if p.exists() => vec![p],
             _ => vec![],
         }
     }
 
-    fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>> {
-        let Some(path) = Self::config_path() else { return Ok(vec![]) };
+    fn plan(&self, palette: &Palette, cfg: &crate::config::AppCfg) -> Result<Vec<WriteOp>> {
+        let Some(path) = self.detect(cfg).into_iter().next() else { return Ok(vec![]) };
         if !path.exists() { return Ok(vec![]); }
 
         let text = fs::read_to_string(&path)
@@ -201,5 +205,8 @@ fn set_root_palette(text: &str, name: &str) -> String {
     if text.ends_with('\n') { s.push('\n'); }
     s
 }
+
+
+
 
 

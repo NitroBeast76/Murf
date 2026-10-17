@@ -36,15 +36,15 @@ impl AppAdapter for WindowsTerminal {
     fn id(&self) -> &'static str { "windows_terminal" }
     fn display_name(&self) -> &'static str { "Windows Terminal" }
 
-    fn detect(&self) -> Vec<PathBuf> {
-        Self::candidate_paths()
-            .into_iter()
-            .filter(|p| p.exists())
-            .collect()
+    fn detect(&self, cfg: &crate::config::AppCfg) -> Vec<PathBuf> {
+        if !cfg.config_paths.is_empty() {
+            return cfg.config_paths.iter().map(PathBuf::from).filter(|p| p.exists()).collect();
+        }
+        Self::candidate_paths().into_iter().filter(|p| p.exists()).collect()
     }
 
-    fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>> {
-        let paths = self.detect();
+    fn plan(&self, palette: &Palette, cfg: &crate::config::AppCfg) -> Result<Vec<WriteOp>> {
+        let paths = self.detect(cfg);
         if paths.is_empty() {
             return Ok(vec![]);
         }
@@ -168,4 +168,7 @@ fn plan_file(
 
     Ok(serde_json::to_string_pretty(&settings)?)
 }
+
+
+
 

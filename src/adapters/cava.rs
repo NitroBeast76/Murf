@@ -27,12 +27,16 @@ impl AppAdapter for Cava {
     fn id(&self) -> &'static str { "cava" }
     fn display_name(&self) -> &'static str { "Cava" }
 
-    fn detect(&self) -> Vec<PathBuf> {
+    fn detect(&self, cfg: &crate::config::AppCfg) -> Vec<PathBuf> {
+        if let Some(p) = &cfg.config_path {
+            let path = PathBuf::from(p);
+            if path.exists() { return vec![path]; }
+        }
         Self::config_path().into_iter().collect()
     }
 
-    fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>> {
-        let Some(path) = Self::config_path() else {
+    fn plan(&self, palette: &Palette, cfg: &crate::config::AppCfg) -> Result<Vec<WriteOp>> {
+        let Some(path) = self.detect(cfg).into_iter().next() else {
             return Ok(vec![]);
         };
 
@@ -83,6 +87,9 @@ impl AppAdapter for Cava {
         super::restart_process("cava.exe", &[])
     }
 }
+
+
+
 
 
 

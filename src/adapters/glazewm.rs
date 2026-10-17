@@ -34,12 +34,16 @@ impl AppAdapter for GlazeWm {
     fn id(&self) -> &'static str { "glazewm" }
     fn display_name(&self) -> &'static str { "GlazeWM" }
 
-    fn detect(&self) -> Vec<PathBuf> {
+    fn detect(&self, cfg: &crate::config::AppCfg) -> Vec<PathBuf> {
+        if let Some(p) = &cfg.config_path {
+            let path = PathBuf::from(p);
+            if path.exists() { return vec![path]; }
+        }
         Self::config_path().into_iter().collect()
     }
 
-    fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>> {
-        let Some(path) = Self::config_path() else { return Ok(vec![]) };
+    fn plan(&self, palette: &Palette, cfg: &crate::config::AppCfg) -> Result<Vec<WriteOp>> {
+        let Some(path) = self.detect(cfg).into_iter().next() else { return Ok(vec![]) };
 
         let text = fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
@@ -97,3 +101,6 @@ impl AppAdapter for GlazeWm {
         Ok(ReloadOutcome { deferred: 1, ..Default::default() })
     }
 }
+
+
+

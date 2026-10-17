@@ -47,14 +47,18 @@ impl AppAdapter for Yasb {
     fn id(&self) -> &'static str { "yasb" }
     fn display_name(&self) -> &'static str { "YASB" }
 
-    fn detect(&self) -> Vec<PathBuf> {
+    fn detect(&self, cfg: &crate::config::AppCfg) -> Vec<PathBuf> {
+        if let Some(dir) = &cfg.config_dir {
+            let p = PathBuf::from(dir).join("styles.css");
+            if p.exists() { return vec![p]; }
+        }
         match Self::styles_path() {
             Some(p) if p.exists() => vec![p],
             _ => vec![],
         }
     }
 
-    fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>> {
+    fn plan(&self, palette: &Palette, _cfg: &crate::config::AppCfg) -> Result<Vec<WriteOp>> {
         let Some(styles) = Self::styles_path() else { return Ok(vec![]) };
         let Some(colors) = Self::colors_path() else { return Ok(vec![]) };
         if !styles.exists() { return Ok(vec![]); }
@@ -133,6 +137,10 @@ impl AppAdapter for Yasb {
         super::restart_process("yasb.exe", &[])
     }
 }
+
+
+
+
 
 
 

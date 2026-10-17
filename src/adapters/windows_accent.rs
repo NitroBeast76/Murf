@@ -64,12 +64,11 @@ impl AppAdapter for WindowsAccent {
     fn id(&self) -> &'static str { "windows_accent" }
     fn display_name(&self) -> &'static str { "Windows 11 accent" }
 
-    fn detect(&self) -> Vec<PathBuf> {
-        // Always available. Registry path is created by Explorer.
+    fn detect(&self, _cfg: &crate::config::AppCfg) -> Vec<PathBuf> {
         vec![PathBuf::from("HKCU\\Software\\Microsoft\\Windows\\DWM")]
     }
 
-    fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>> {
+    fn plan(&self, palette: &Palette, _cfg: &crate::config::AppCfg) -> Result<Vec<WriteOp>> {
         let primary = palette.hex_or("primary", "#0078D4");
         let accent = match hex_to_abgr(&primary) {
             Some(v) => v,
@@ -117,3 +116,6 @@ impl AppAdapter for WindowsAccent {
         Ok(ReloadOutcome { live_reload: 1, ..Default::default() })
     }
 }
+
+
+

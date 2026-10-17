@@ -1,12 +1,11 @@
-// Murf entry point. v0.2 step 6: Cava, Chronoterm, Starship adapters.
-
 mod adapters;
+mod autostart;
 mod color;
 mod config;
 mod journal;
 mod matugen;
-mod registry;
 mod palette;
+mod registry;
 mod watcher;
 
 use adapters::{
@@ -19,15 +18,21 @@ use anyhow::Result;
 use color::AnsiMode;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tray_icon::{
-    menu::{Menu, MenuEvent, MenuItem},
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem},
     Icon, TrayIconBuilder,
 };
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 enum UserEvent {
     Menu(MenuEvent),
     WallpaperChanged(String),
+    AutostartDelayElapsed,
 }
 
 fn make_icon() -> Icon {
@@ -58,7 +63,6 @@ fn make_icon() -> Icon {
             }
         }
     }
-
     Icon::from_rgba(rgba, size, size).expect("valid icon")
 }
 
@@ -71,7 +75,7 @@ fn ansi_mode_from_str(s: &str) -> AnsiMode {
 
 fn build_adapters(cfg: &config::Config) -> Vec<Box<dyn AppAdapter>> {
     let ansi_mode = ansi_mode_from_str(&cfg.palette.ansi_mapping);
-    let mut adapters: Vec<Box<dyn AppAdapter>> = vec![
+    vec![
         Box::new(WindowsTerminal::new(ansi_mode)),
         Box::new(Chronoterm),
         Box::new(Cava),
@@ -79,25 +83,13 @@ fn build_adapters(cfg: &config::Config) -> Vec<Box<dyn AppAdapter>> {
         Box::new(GlazeWm),
         Box::new(Yasb),
         Box::new(WindowsAccent),
+        Box::new(WindowsTheme),
         Box::new(Fastfetch),
-    ];
-
-    let theme_enabled = cfg.apps.get("windows_theme").map(|a| a.enabled).unwrap_or(false);
-    if theme_enabled {
-        adapters.push(Box::new(WindowsTheme));
-    }
-
-    adapters
+    ]
 }
 
-fn write_palette_dump(
-    wallpaper: &str,
-    palette: &palette::Palette,
-    cfg: &config::Config,
-) -> Result<PathBuf> {
-    let Some(local) = std::env::var_os("LOCALAPPDATA") else {
-        anyhow::bail!("LOCALAPPDATA not set");
-    };
+fn write_palette_dump(wallpaper: &str, palette: &palette::Palette, cfg: &config::Config) -> Result<PathBuf> {
+    let Some(local) = std::env::var_os("LOCALAPPDATA") else { anyhow::bail!("LOCALAPPDATA not set"); };
     let dir = PathBuf::from(local).join("Murf");
     fs::create_dir_all(&dir)?;
     let path = dir.join("last-palette.json");
@@ -114,31 +106,14 @@ fn write_palette_dump(
     let ratio = |hex: &str| -> f64 { color::contrast_ratio(hex, &bg).unwrap_or(0.0) as f64 };
 
     let doc = serde_json::json!({
-        "wallpaper": wallpaper,
-        "mode": cfg.palette.mode,
-        "scheme_type": cfg.palette.scheme_type,
-        "contrast": cfg.palette.contrast,
-        "ansi_mapping": cfg.palette.ansi_mapping,
-        "is_dark": palette.is_dark,
-        "background": bg,
-        "roles": roles,
+        "wallpaper": wallpaper, "mode": cfg.palette.mode, "is_dark": palette.is_dark,
+        "background": bg, "roles": roles,
         "ansi_semantic": {
             "red": sem.red, "yellow": sem.yellow, "green": sem.green,
             "cyan": sem.cyan, "blue": sem.blue, "purple": sem.purple,
-            "brightRed": sem.bright_red, "brightYellow": sem.bright_yellow,
-            "brightGreen": sem.bright_green, "brightCyan": sem.bright_cyan,
-            "brightBlue": sem.bright_blue, "brightPurple": sem.bright_purple,
         },
         "ansi_contrast": {
-            "red": ratio(&sem.red), "yellow": ratio(&sem.yellow),
-            "green": ratio(&sem.green), "cyan": ratio(&sem.cyan),
-            "blue": ratio(&sem.blue), "purple": ratio(&sem.purple),
-            "brightRed": ratio(&sem.bright_red),
-            "brightYellow": ratio(&sem.bright_yellow),
-            "brightGreen": ratio(&sem.bright_green),
-            "brightCyan": ratio(&sem.bright_cyan),
-            "brightBlue": ratio(&sem.bright_blue),
-            "brightPurple": ratio(&sem.bright_purple),
+            "red": ratio(&sem.red), "yellow": ratio(&sem.yellow), "green": ratio(&sem.green),
         },
     });
 
@@ -149,168 +124,116 @@ fn write_palette_dump(
 fn run_apply(wallpaper: &str, cfg: &config::Config) {
     tracing::info!(wallpaper = %wallpaper, "applying palette");
 
-    let palette = match matugen::generate(
-        wallpaper,
-        &cfg.palette.mode,
-        &cfg.palette.scheme_type,
-        cfg.palette.contrast,
-    ) {
+    let palette = match matugen::generate(wallpaper, &cfg.palette.mode, &cfg.palette.scheme_type, cfg.palette.contrast) {
         Ok(p) => p,
-        Err(e) => {
-            tracing::error!(error = %e, "matugen failed");
-            return;
-        }
+        Err(e) => { tracing::error!(error = %e, "matugen failed"); return; }
     };
 
-    tracing::info!(
-        roles = palette.roles.len(),
-        is_dark = palette.is_dark,
-        "palette parsed"
-    );
-
-    match write_palette_dump(wallpaper, &palette, cfg) {
-        Ok(path) => tracing::info!(path = %path.display(), "palette dump written"),
-        Err(e) => tracing::warn!(error = %e, "failed to write palette dump"),
-    }
+    let _ = write_palette_dump(wallpaper, &palette, cfg);
 
     let adapters = build_adapters(cfg);
-
-    // Plan phase: pure, no writes.
     let mut all_ops = Vec::new();
+
     for a in &adapters {
-        let detected = a.detect();
-        if detected.is_empty() {
-            tracing::debug!(adapter = a.id(), "not installed; skipping");
-            continue;
-        }
-        match a.plan(&palette) {
-            Ok(ops) => {
-                if !ops.is_empty() {
-                    tracing::info!(
-                        adapter = a.id(),
-                        ops = ops.len(),
-                        "planned"
-                    );
-                }
-                all_ops.extend(ops);
-            }
-            Err(e) => tracing::error!(
-                adapter = a.id(),
-                error = %e,
-                "planning failed"
-            ),
+        let app_cfg = cfg.apps.get(a.id()).cloned().unwrap_or_default();
+        if !app_cfg.enabled { continue; }
+        if a.detect(&app_cfg).is_empty() { continue; }
+        
+        match a.plan(&palette, &app_cfg) {
+            Ok(ops) => all_ops.extend(ops),
+            Err(e) => tracing::error!(adapter = a.id(), error = %e, "planning failed"),
         }
     }
 
-    if all_ops.is_empty() {
-        tracing::warn!("no writes to perform");
-        return;
-    }
+    if all_ops.is_empty() { return; }
 
-    tracing::info!(count = all_ops.len(), "planned writes");
-
-    // Apply phase: journaled.
     let mut j = match journal::Journal::begin() {
         Ok(j) => j,
-        Err(e) => {
-            tracing::error!(error = %e, "could not begin journal");
-            return;
-        }
+        Err(e) => { tracing::error!(error = %e, "could not begin journal"); return; }
     };
 
     match adapters::apply_ops(&mut j, &all_ops) {
         Ok(()) => {
-            if let Err(e) = j.commit() {
-                tracing::error!(error = %e, "journal commit failed");
-                return;
-            }
+            if let Err(e) = j.commit() { tracing::error!(error = %e, "journal commit failed"); return; }
             for a in &adapters {
-                if a.detect().is_empty() { continue; }
-                match a.reload() {
-                    Ok(outcome) => tracing::info!(
-                        adapter = a.id(),
-                        live = outcome.live_reload,
-                        restarted = outcome.restarted,
-                        skipped = outcome.skipped,
-                        "reload result"
-                    ),
-                    Err(e) => tracing::error!(
-                        adapter = a.id(),
-                        error = %e,
-                        "reload failed"
-                    ),
+                let app_cfg = cfg.apps.get(a.id()).cloned().unwrap_or_default();
+                if !app_cfg.enabled { continue; }
+                if a.detect(&app_cfg).is_empty() { continue; }
+                if let Err(e) = a.reload() {
+                    tracing::error!(adapter = a.id(), error = %e, "reload failed");
                 }
             }
         }
         Err(e) => {
             tracing::error!(error = %e, "apply failed; recovering");
-            match journal::recover() {
-                Ok(journal::RecoveryResult::RolledBack { restored, failed }) => {
-                    tracing::warn!(restored, failed, "rolled back");
-                }
-                Ok(other) => tracing::warn!(?other, "recovery result"),
-                Err(e) => tracing::error!(error = %e, "recovery failed"),
-            }
+            let _ = journal::recover();
         }
     }
 }
 
 fn main() -> Result<()> {
     let cfg = config::load_or_default()?;
-
     let default_level = cfg.general.log_level.clone();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| format!("murf={}", default_level).into()),
-        )
-        .init();
+    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| format!("murf={}", default_level).into())).init();
 
-    tracing::info!("murf starting");
+    tracing::info!(version = VERSION, "murf starting");
+    let _ = journal::recover();
+    autostart::sync_from_windows();
+    let autostart_enabled = autostart::is_registered() && autostart::is_approved_by_windows();
 
-    match journal::recover() {
-        Ok(journal::RecoveryResult::NoJournal) => {}
-        Ok(journal::RecoveryResult::AlreadyCommitted) => {
-            tracing::info!("previous apply was committed; journal cleaned up");
-        }
-        Ok(journal::RecoveryResult::RolledBack { restored, failed }) => {
-            tracing::warn!(restored, failed, "rolled back interrupted apply");
-        }
-        Ok(journal::RecoveryResult::GaveUp { attempts }) => {
-            tracing::error!(attempts, "journal gave up; manual restore required");
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "journal recovery failed");
-        }
-    }
+    let paused = Arc::new(AtomicBool::new(false));
+    let autostart_flag = std::env::args().any(|a| a == "--autostart");
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
-
     let menu_proxy = event_loop.create_proxy();
-    MenuEvent::set_event_handler(Some(move |event| {
-        let _ = menu_proxy.send_event(UserEvent::Menu(event));
-    }));
+    MenuEvent::set_event_handler(Some(move |event| { let _ = menu_proxy.send_event(UserEvent::Menu(event)); }));
 
     let watcher = watcher::Watcher::start(cfg.general.settle_delay_ms)?;
     let watcher_proxy = event_loop.create_proxy();
     let rx = watcher.rx;
     std::thread::spawn(move || {
-        for path in rx {
-            let _ = watcher_proxy.send_event(UserEvent::WallpaperChanged(path));
-        }
+        for path in rx { let _ = watcher_proxy.send_event(UserEvent::WallpaperChanged(path)); }
     });
 
-    let menu = Menu::new();
-    let apply_now = MenuItem::new("Apply now", true, None);
-    let open_config = MenuItem::new("Open config", true, None);
-    let quit = MenuItem::new("Quit", true, None);
+    if autostart_flag {
+        let delay = cfg.general.startup_delay_secs;
+        let proxy = event_loop.create_proxy();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(delay));
+            let _ = proxy.send_event(UserEvent::AutostartDelayElapsed);
+        });
+    }
 
-    let apply_id = apply_now.id().clone();
-    let open_config_id = open_config.id().clone();
-    let quit_id = quit.id().clone();
+    let menu = Menu::new();
+    let apply_now        = MenuItem::new("Apply now", true, None);
+    let pause_item       = CheckMenuItem::new("Pause watching", true, false, None);
+    let autostart_item   = CheckMenuItem::new("Start at login", true, autostart_enabled, None);
+    let open_config      = MenuItem::new("Open config", true, None);
+    let open_logs        = MenuItem::new("Open logs", true, None);
+    let about            = MenuItem::new(format!("Murf {}", VERSION), true, None);
+    let quit             = MenuItem::new("Quit", true, None);
+
+    let apply_id     = apply_now.id().clone();
+    let pause_id     = pause_item.id().clone();
+    let autostart_id = autostart_item.id().clone();
+    let cfg_id       = open_config.id().clone();
+    let logs_id      = open_logs.id().clone();
+    let about_id     = about.id().clone();
+    let quit_id      = quit.id().clone();
+
+    let sep1 = PredefinedMenuItem::separator();
+    let sep2 = PredefinedMenuItem::separator();
+    let sep3 = PredefinedMenuItem::separator();
 
     menu.append(&apply_now)?;
+    menu.append(&pause_item)?;
+    menu.append(&sep1)?;
+    menu.append(&autostart_item)?;
+    menu.append(&sep2)?;
     menu.append(&open_config)?;
+    menu.append(&open_logs)?;
+    menu.append(&about)?;
+    menu.append(&sep3)?;
     menu.append(&quit)?;
 
     let _tray = TrayIconBuilder::new()
@@ -325,32 +248,33 @@ fn main() -> Result<()> {
         *control_flow = ControlFlow::Wait;
 
         match event {
-            tao::event::Event::UserEvent(UserEvent::Menu(menu_event)) => {
-                if menu_event.id == apply_id {
-                    match matugen::current_wallpaper() {
-                        Some(w) => run_apply(&w, &cfg),
-                        None => tracing::warn!("no wallpaper path found"),
-                    }
-                } else if menu_event.id == open_config_id {
+            tao::event::Event::UserEvent(UserEvent::Menu(e)) => {
+                if e.id == apply_id {
+                    if let Some(w) = matugen::current_wallpaper() { run_apply(&w, &cfg); }
+                } else if e.id == pause_id {
+                    let now = pause_item.is_checked();
+                    paused.store(now, Ordering::SeqCst);
+                } else if e.id == autostart_id {
+                    let _ = autostart::toggle(autostart_item.is_checked());
+                } else if e.id == cfg_id {
                     let path = config::config_path();
-                    tracing::info!(path = %path.display(), "opening config");
-                    let _ = std::process::Command::new("cmd")
-                        .args(["/C", "start", "", &path.to_string_lossy()])
-                        .spawn();
-                } else if menu_event.id == quit_id {
-                    tracing::info!("quit clicked");
+                    let _ = std::process::Command::new("cmd").args(["/C", "start", "", &path.to_string_lossy()]).spawn();
+                } else if e.id == logs_id {
+                    let dir = std::env::var("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Murf").join("logs")).unwrap_or_default();
+                    let _ = std::process::Command::new("cmd").args(["/C", "start", "", &dir.to_string_lossy()]).spawn();
+                } else if e.id == about_id {
+                    registry::show_message_box("Murf", &format!("Murf {}\n\nConfig: {}", VERSION, config::config_path().display()));
+                } else if e.id == quit_id {
                     *control_flow = ControlFlow::Exit;
                 }
             }
             tao::event::Event::UserEvent(UserEvent::WallpaperChanged(path)) => {
-                run_apply(&path, &cfg);
+                if !paused.load(Ordering::SeqCst) { run_apply(&path, &cfg); }
+            }
+            tao::event::Event::UserEvent(UserEvent::AutostartDelayElapsed) => {
+                if let Some(w) = matugen::current_wallpaper() { run_apply(&w, &cfg); }
             }
             _ => {}
         }
     });
 }
-
-
-
-
-

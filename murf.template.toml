@@ -1,0 +1,66 @@
+# =====================================================================
+#  Murf Configuration
+#  Delete this file to reset Murf to defaults.
+# =====================================================================
+
+[general]
+# How long to wait after the wallpaper changes before generating colors.
+# Lower is faster, but if you change wallpapers rapidly it might stutter.
+settle_delay_ms = 500
+
+# How long to wait after logging in before Murf applies the theme.
+startup_delay_secs = 5
+
+[palette]
+# mode: "dark", "light", or "smart" (matches wallpaper brightness).
+mode = "smart"
+
+# scheme_type: "scheme-tonal-spot", "scheme-vibrant", "scheme-expressive", etc.
+scheme_type = "scheme-tonal-spot"
+
+# contrast: -1.0 to 1.0 (0.0 is standard Material Design).
+contrast = 0.0
+
+# ansi_mapping: "semantic" (true reds/greens) or "material" (rotates hues).
+ansi_mapping = "semantic"
+
+# =====================================================================
+#  Application Adapters
+#  Set `enabled = false` to stop Murf from touching an app.
+#  If Murf can't find an app automatically, uncomment `config_path` 
+#  and point it directly to the file.
+# =====================================================================
+
+[apps.windows_terminal]
+enabled = true
+# config_paths = ["C:\\Users\\Name\\scoop\\persist\\windows-terminal\\settings.json"]
+
+[apps.yasb]
+enabled = true
+# config_dir = "D:\\Dotfiles\\yasb"
+
+[apps.glazewm]
+enabled = true
+# config_path = "D:\\Dotfiles\\glazewm\\config.yaml"
+
+[apps.chronoterm]
+enabled = true
+# config_path = "C:\\Users\\Name\\.config\\chronoterm\\config.toml"
+
+[apps.cava]
+enabled = true
+# config_path = "C:\\Users\\Name\\.config\\cava\\config"
+
+[apps.starship]
+enabled = true
+# config_path = "C:\\Users\\Name\\.config\\starship.toml"
+
+[apps.fastfetch]
+enabled = true
+# logo_source = "C:\\Users\\Name\\my-ascii-art.txt"
+
+[apps.windows_accent]
+enabled = true
+
+[apps.windows_theme]
+enabled = false

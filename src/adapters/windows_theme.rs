@@ -16,11 +16,11 @@ impl AppAdapter for WindowsTheme {
     fn id(&self) -> &'static str { "windows_theme" }
     fn display_name(&self) -> &'static str { "Windows Theme" }
 
-    fn detect(&self) -> Vec<PathBuf> {
+    fn detect(&self, _cfg: &crate::config::AppCfg) -> Vec<PathBuf> {
         vec![PathBuf::from("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize")]
     }
 
-    fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>> {
+    fn plan(&self, palette: &Palette, _cfg: &crate::config::AppCfg) -> Result<Vec<WriteOp>> {
         // 1 = Light, 0 = Dark
         let val = if palette.is_dark { 0 } else { 1 };
 
@@ -47,3 +47,6 @@ impl AppAdapter for WindowsTheme {
         Ok(ReloadOutcome { live_reload: 1, ..Default::default() })
     }
 }
+
+
+

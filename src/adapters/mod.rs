@@ -52,8 +52,8 @@ pub trait AppAdapter: Send + Sync {
     fn id(&self) -> &'static str;
     #[allow(dead_code)]
     fn display_name(&self) -> &'static str;
-    fn detect(&self) -> Vec<PathBuf>;
-    fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>>;
+    fn detect(&self, cfg: &crate::config::AppCfg) -> Vec<PathBuf>;
+    fn plan(&self, palette: &Palette, cfg: &crate::config::AppCfg) -> Result<Vec<WriteOp>>;
     fn reload(&self) -> Result<ReloadOutcome>;
 }
 
@@ -348,5 +348,7 @@ pub fn restart_process(exe_name: &str, args: &[&str]) -> Result<ReloadOutcome> {
         }
     }
 }
+
+
 
 

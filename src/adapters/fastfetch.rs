@@ -19,8 +19,12 @@ impl AppAdapter for Fastfetch {
     fn id(&self) -> &'static str { "fastfetch" }
     fn display_name(&self) -> &'static str { "Fastfetch" }
 
-    fn detect(&self) -> Vec<PathBuf> {
-        let dir = match home_dir() {
+    fn detect(&self, cfg: &crate::config::AppCfg) -> Vec<PathBuf> {
+        if let Some(p) = &cfg.config_path {
+            let path = PathBuf::from(p);
+            if path.exists() { return vec![path]; }
+        }
+        let dir = match super::home_dir() {
             Some(h) => h.join(".config").join("fastfetch"),
             None => return vec![],
         };
@@ -28,8 +32,8 @@ impl AppAdapter for Fastfetch {
         Self::config_path().into_iter().collect()
     }
 
-    fn plan(&self, palette: &Palette) -> Result<Vec<WriteOp>> {
-        let Some(path) = Self::config_path() else { return Ok(vec![]); };
+    fn plan(&self, palette: &Palette, cfg: &crate::config::AppCfg) -> Result<Vec<WriteOp>> {
+        let Some(path) = self.detect(cfg).into_iter().next() else { return Ok(vec![]); };
 
         let l1 = palette.hex_or("primary",             "#ffffff");
         let l2 = palette.hex_or("secondary",           "#cccccc");
@@ -106,3 +110,6 @@ impl AppAdapter for Fastfetch {
         Ok(ReloadOutcome { deferred: 1, ..Default::default() })
     }
 }
+
+
+

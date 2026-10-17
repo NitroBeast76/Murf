@@ -1,8 +1,4 @@
 // Config: %APPDATA%\Murf\murf.toml
-//
-// Loaded on startup. Written if missing. Environment variables in
-// ${VAR} or %VAR% form are expanded on load.
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -58,22 +54,22 @@ pub struct AppCfg {
     pub logo_source: Option<String>,
 }
 
+impl Default for AppCfg {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            config_path: None,
+            config_paths: Vec::new(),
+            config_dir: None,
+            reload: "auto".into(),
+            reload_cmd: Vec::new(),
+            logo_source: None,
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
-        let mut apps = BTreeMap::new();
-        apps.insert(
-            "windows_theme".to_string(),
-            AppCfg {
-                enabled: false,
-                config_path: None,
-                config_paths: vec![],
-                config_dir: None,
-                reload: "command".into(),
-                reload_cmd: vec![],
-                logo_source: None,
-            },
-        );
-
         Config {
             general: General {
                 version: 1,
@@ -88,15 +84,13 @@ impl Default for Config {
                 contrast: 0.0,
                 ansi_mapping: "semantic".into(),
             },
-            apps,
+            apps: BTreeMap::new(),
         }
     }
 }
 
 pub fn config_dir() -> PathBuf {
-    let appdata = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
+    let appdata = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
     appdata.join("Murf")
 }
 
@@ -120,33 +114,19 @@ pub fn load_or_default() -> Result<Config> {
 }
 
 fn load_from(path: &Path) -> Result<Config> {
-    let raw = fs::read_to_string(path)
-        .with_context(|| format!("reading {}", path.display()))?;
+    let raw = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let expanded = expand_env(&raw);
-
-    let cfg: Config = toml::from_str(&expanded)
-        .with_context(|| format!("parsing {}", path.display()))?;
-
-    tracing::info!(
-        path = %path.display(),
-        mode = %cfg.palette.mode,
-        scheme = %cfg.palette.scheme_type,
-        ansi = %cfg.palette.ansi_mapping,
-        "config loaded"
-    );
+    let cfg: Config = toml::from_str(&expanded).with_context(|| format!("parsing {}", path.display()))?;
+    tracing::info!(path = %path.display(), mode = %cfg.palette.mode, "config loaded");
     Ok(cfg)
 }
 
-fn write_to(path: &Path, cfg: &Config) -> Result<()> {
+fn write_to(path: &Path, _cfg: &Config) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let text = toml::to_string_pretty(cfg)?;
-    let header = "\
-# Murf configuration.
-# Delete this file to reset Murf to defaults.
-# Environment variables: ${VAR} or %VAR%.
-\n";
+    let text = include_str!("../murf.template.toml");
+    let header = "\n# (Do not edit the template above, edit the values below)\n\n";
     fs::write(path, format!("{}{}", header, text))?;
     Ok(())
 }
@@ -155,7 +135,6 @@ fn expand_env(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let bytes: Vec<char> = s.chars().collect();
     let mut i = 0;
-
     while i < bytes.len() {
         if bytes[i] == '%' {
             if let Some(end) = bytes[i + 1..].iter().position(|&c| c == '%') {
