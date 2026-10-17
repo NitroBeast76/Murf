@@ -16,6 +16,7 @@ use adapters::{
 };
 use anyhow::Result;
 use color::AnsiMode;
+use image::GenericImageView;
 use global_hotkey::{hotkey::{Code, HotKey, Modifiers}, GlobalHotKeyEvent, GlobalHotKeyManager};
 use std::fs;
 use std::path::PathBuf;
@@ -38,34 +39,11 @@ enum UserEvent {
 }
 
 fn make_icon() -> Icon {
-    let size: u32 = 32;
-    let mut rgba = vec![0u8; (size * size * 4) as usize];
-    let cx = size as f32 / 2.0;
-    let cy = size as f32 / 2.0;
-    let outer_r: f32 = 15.0;
-    let inner_r: f32 = 7.0;
-
-    for y in 0..size {
-        for x in 0..size {
-            let dx = x as f32 - cx + 0.5;
-            let dy = y as f32 - cy + 0.5;
-            let d = (dx * dx + dy * dy).sqrt();
-            let i = ((y * size + x) * 4) as usize;
-
-            if d <= inner_r {
-                rgba[i]     = 0x4a;
-                rgba[i + 1] = 0x5f;
-                rgba[i + 2] = 0xa8;
-                rgba[i + 3] = 0xff;
-            } else if d <= outer_r {
-                rgba[i]     = 0xe8;
-                rgba[i + 1] = 0xe8;
-                rgba[i + 2] = 0xe8;
-                rgba[i + 3] = 0xff;
-            }
-        }
-    }
-    Icon::from_rgba(rgba, size, size).expect("valid icon")
+    let bytes = include_bytes!("../assets/icon.png");
+    let img = image::load_from_memory(bytes).expect("failed to decode icon.png");
+    let (width, height) = img.dimensions();
+    let rgba = img.into_rgba8().into_raw();
+    Icon::from_rgba(rgba, width, height).expect("valid icon")
 }
 
 fn ansi_mode_from_str(s: &str) -> AnsiMode {
@@ -336,4 +314,5 @@ fn main() -> Result<()> {
         }
     });
 }
+
 
