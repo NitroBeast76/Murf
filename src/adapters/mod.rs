@@ -301,8 +301,10 @@ pub fn remove_block(original: &str, marker_open: &str, marker_close: &str) -> St
 /// Check if a process is currently running using tasklist.
 pub fn is_process_running(exe_name: &str) -> bool {
     use std::process::Command;
-use std::os::windows::process::CommandExt;
+    use std::os::windows::process::CommandExt;
+    
     let output = Command::new("tasklist")
+        .creation_flags(0x08000000)
         .args(["/FI", &format!("IMAGENAME eq {}", exe_name), "/NH"])
         .output();
         
@@ -319,23 +321,22 @@ use std::os::windows::process::CommandExt;
 /// but ONLY if it was already running.
 pub fn restart_process(exe_name: &str, args: &[&str]) -> Result<ReloadOutcome> {
     use std::process::Command;
-use std::os::windows::process::CommandExt;
+    use std::os::windows::process::CommandExt;
     
     if !is_process_running(exe_name) {
         tracing::debug!(exe = exe_name, "not running, skipping restart");
         return Ok(ReloadOutcome { skipped: 1, ..Default::default() });
     }
 
-    // 1. Kill
     let _ = Command::new("taskkill")
+        .creation_flags(0x08000000)
         .args(["/IM", exe_name, "/F"])
         .output();
         
-    // 2. Wait a moment for the OS to release file locks
     std::thread::sleep(std::time::Duration::from_millis(200));
 
-    // 3. Relaunch
-    let mut cmd = Command::new("cmd");`r`n    cmd.creation_flags(0x08000000);
+    let mut cmd = Command::new("cmd");
+    cmd.creation_flags(0x08000000);
     cmd.args(["/C", "start", ""]);
     cmd.arg(exe_name);
     cmd.args(args);
@@ -351,9 +352,3 @@ use std::os::windows::process::CommandExt;
         }
     }
 }
-
-
-
-
-
-
