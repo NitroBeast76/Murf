@@ -176,3 +176,11 @@ fn expand_env(s: &str) -> String {
 }
 
 
+
+pub fn save_config(cfg: &Config) -> Result<()> {
+    let path = config_path();
+    let text = toml::to_string_pretty(cfg)?;
+    fs::write(&path, text)?;
+    tracing::info!(path = %path.display(), "config saved");
+    Ok(())
+}
