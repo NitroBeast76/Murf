@@ -60,6 +60,20 @@ pub struct AppCfg {
 
 impl Default for Config {
     fn default() -> Self {
+        let mut apps = BTreeMap::new();
+        apps.insert(
+            "windows_theme".to_string(),
+            AppCfg {
+                enabled: false,
+                config_path: None,
+                config_paths: vec![],
+                config_dir: None,
+                reload: "command".into(),
+                reload_cmd: vec![],
+                logo_source: None,
+            },
+        );
+
         Config {
             general: General {
                 version: 1,
@@ -74,7 +88,7 @@ impl Default for Config {
                 contrast: 0.0,
                 ansi_mapping: "semantic".into(),
             },
-            apps: BTreeMap::new(),
+            apps,
         }
     }
 }
@@ -137,15 +151,12 @@ fn write_to(path: &Path, cfg: &Config) -> Result<()> {
     Ok(())
 }
 
-/// Expand ${VAR} and %VAR% to their environment values.
-/// Unknown variables are left as-is.
 fn expand_env(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let bytes: Vec<char> = s.chars().collect();
     let mut i = 0;
 
     while i < bytes.len() {
-        // %VAR% form
         if bytes[i] == '%' {
             if let Some(end) = bytes[i + 1..].iter().position(|&c| c == '%') {
                 let name: String = bytes[i + 1..i + 1 + end].iter().collect();
@@ -156,8 +167,6 @@ fn expand_env(s: &str) -> String {
                 }
             }
         }
-
-        // ${VAR} form
         if bytes[i] == '$' && i + 1 < bytes.len() && bytes[i + 1] == '{' {
             if let Some(end) = bytes[i + 2..].iter().position(|&c| c == '}') {
                 let name: String = bytes[i + 2..i + 2 + end].iter().collect();
@@ -168,7 +177,6 @@ fn expand_env(s: &str) -> String {
                 }
             }
         }
-
         out.push(bytes[i]);
         i += 1;
     }

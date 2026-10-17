@@ -6,6 +6,7 @@ pub mod fastfetch;
 pub mod glazewm;
 pub mod starship;
 pub mod windows_accent;
+pub mod windows_theme;
 pub mod windows_terminal;
 pub mod yasb;
 
@@ -347,4 +348,5 @@ pub fn restart_process(exe_name: &str, args: &[&str]) -> Result<ReloadOutcome> {
         }
     }
 }
+
 

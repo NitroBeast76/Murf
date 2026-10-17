@@ -12,8 +12,8 @@ mod watcher;
 use adapters::{
     cava::Cava, chronoterm::Chronoterm, fastfetch::Fastfetch,
     glazewm::GlazeWm, starship::Starship,
-    windows_accent::WindowsAccent, windows_terminal::WindowsTerminal,
-    yasb::Yasb, AppAdapter,
+    windows_accent::WindowsAccent, windows_theme::WindowsTheme,
+    windows_terminal::WindowsTerminal, yasb::Yasb, AppAdapter,
 };
 use anyhow::Result;
 use color::AnsiMode;
@@ -71,7 +71,7 @@ fn ansi_mode_from_str(s: &str) -> AnsiMode {
 
 fn build_adapters(cfg: &config::Config) -> Vec<Box<dyn AppAdapter>> {
     let ansi_mode = ansi_mode_from_str(&cfg.palette.ansi_mapping);
-    vec![
+    let mut adapters: Vec<Box<dyn AppAdapter>> = vec![
         Box::new(WindowsTerminal::new(ansi_mode)),
         Box::new(Chronoterm),
         Box::new(Cava),
@@ -80,7 +80,14 @@ fn build_adapters(cfg: &config::Config) -> Vec<Box<dyn AppAdapter>> {
         Box::new(Yasb),
         Box::new(WindowsAccent),
         Box::new(Fastfetch),
-    ]
+    ];
+
+    let theme_enabled = cfg.apps.get("windows_theme").map(|a| a.enabled).unwrap_or(false);
+    if theme_enabled {
+        adapters.push(Box::new(WindowsTheme));
+    }
+
+    adapters
 }
 
 fn write_palette_dump(
@@ -342,6 +349,7 @@ fn main() -> Result<()> {
         }
     });
 }
+
 
 
 
