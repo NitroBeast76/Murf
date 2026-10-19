@@ -46,3 +46,43 @@ config_dir = "D:\\Dotfiles\\yasb"
 [apps.glazewm]
 enabled = true
 config_path = "D:\\Dotfiles\\glazewm\\config.yaml"
+```
+
+### Tuning the Morph Speed
+The `settle_delay_ms` value controls how long Murf waits after you change the wallpaper before applying the theme.
+```toml
+[general]
+# 500ms is snappy. Increase to 2000ms if you have slow-loading wallpapers.
+settle_delay_ms = 500 
+```
+
+### Custom Fastfetch ASCII Art
+If you want to use your own ASCII logo instead of the default Windows logo, save your art as a `.txt` file and point to it in your `murf.toml`:
+
+```toml
+[apps.fastfetch]
+enabled = true
+logo_source = "C:\\Users\\YourName\\my-ascii-art.txt"
+```
+*(Make sure to use double backslashes `\\` in the TOML file).*
+
+## Example Configs
+Setting up Murf is designed to be copy-paste friendly. Check the `examples/` folder for ready-to-use blocks:
+
+- **PowerShell Profile:** Copy the contents of `examples/profile.ps1` into your `$PROFILE` to ensure Fastfetch and Starship use Murf's generated configs.
+- **YASB:** Copy the `:root` block from `examples/yasb-styles.css` into your `styles.css`. This replaces hardcoded colors with dynamic variables.
+- **GlazeWM:** Copy the `window_effects` block from `examples/glazewm-config.yaml` into your `config.yaml` (notice the `*murf_primary` anchor). Murf injects the anchor definitions automatically at the top of the file.
+
+## Usage
+- **Tray Menu:** Right-click the Murf icon to Apply Now, Pause Watching, or toggle specific Adapters on the fly.
+- **Hotkey:** `Ctrl+Alt+M` forces an immediate theme update.
+- **Logs:** If something goes wrong, check `%LOCALAPPDATA%\Murf\logs\murf.log`.
+
+## Uninstallation
+1. Right-click the tray icon and select **Quit**.
+2. Delete `murf.exe`.
+3. (Optional) Delete `%APPDATA%\Murf` to remove your configuration, and `%LOCALAPPDATA%\Murf` to remove logs.
+4. Any apps themed by Murf will simply stop updating. You can remove the `Murf` blocks from their configs manually if you wish to restore their original colors.
+
+---
+*Built with Rust. Powered by matugen and Material You.*
