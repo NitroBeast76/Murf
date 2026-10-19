@@ -20,9 +20,7 @@ impl Yasb {
     fn styles_path() -> Option<PathBuf> {
         Some(Self::config_dir()?.join("styles.css"))
     }
-    fn colors_path() -> Option<PathBuf> {
-        Some(Self::config_dir()?.join(COLORS_FILE))
-    }
+
 
     fn yasb_config_path() -> Option<PathBuf> {
         Some(Self::config_dir()?.join("config.yaml"))
