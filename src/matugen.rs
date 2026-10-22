@@ -1,10 +1,34 @@
-// Matugen bridge. See docs/matugen-contract.md for the verified invocation.
+// Matugen bridge.
+//
+// Extracts the embedded matugen.exe to %LOCALAPPDATA%\Murf\bin on first run,
+// then invokes it.
 
 use crate::palette::{Color, Palette};
 use anyhow::{anyhow, Context, Result};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::process::Command;
 use std::os::windows::process::CommandExt;
+
+// Embed the matugen executable directly into Murf.
+const MATUGEN_BINARY: &[u8] = include_bytes!("../assets/matugen.exe");
+
+/// Ensure matugen.exe is extracted to disk and return its path.
+fn get_matugen_path() -> Result<PathBuf> {
+    let local = std::env::var_os("LOCALAPPDATA")
+        .ok_or_else(|| anyhow!("LOCALAPPDATA not set"))?;
+    let dir = PathBuf::from(local).join("Murf").join("bin");
+    let exe = dir.join("matugen.exe");
+
+    if !exe.exists() {
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(&exe, MATUGEN_BINARY)
+            .context("failed to extract embedded matugen.exe")?;
+        tracing::info!(path = %exe.display(), "extracted embedded matugen");
+    }
+
+    Ok(exe)
+}
 
 pub fn generate(
     image_path: &str,
@@ -12,7 +36,10 @@ pub fn generate(
     scheme_type: &str,
     contrast: f32,
 ) -> Result<Palette> {
-    let output = Command::new("matugen").creation_flags(0x08000000)
+    let matugen_exe = get_matugen_path()?;
+
+    let output = Command::new(&matugen_exe)
+        .creation_flags(0x08000000)
         .args([
             "image",
             image_path,
@@ -29,7 +56,7 @@ pub fn generate(
             "0",
         ])
         .output()
-        .context("failed to run matugen; is it on PATH?")?;
+        .context("failed to run matugen")?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -66,8 +93,6 @@ fn parse_palette(json: &str) -> Result<Palette> {
         return Err(anyhow!("matugen JSON contained no usable role colors"));
     }
 
-    // Prefer matugen's own is_dark_mode field. Fallback: infer from
-    // the background role's perceptual lightness.
     let is_dark = match v.get("is_dark_mode").and_then(|b| b.as_bool()) {
         Some(b) => b,
         None => infer_is_dark(&roles),
@@ -86,11 +111,9 @@ fn infer_is_dark(roles: &BTreeMap<String, Color>) -> bool {
     }
 }
 
-/// Current wallpaper path from the Windows registry.
 pub fn current_wallpaper() -> Option<String> {
-    use std::process::Command;
-use std::os::windows::process::CommandExt;
-    let out = Command::new("reg").creation_flags(0x08000000)
+    let out = Command::new("reg")
+        .creation_flags(0x08000000)
         .args(["query", "HKCU\\Control Panel\\Desktop", "/v", "Wallpaper"])
         .output()
         .ok()?;
@@ -108,4 +131,3 @@ use std::os::windows::process::CommandExt;
     }
     None
 }
-
