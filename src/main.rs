@@ -44,13 +44,12 @@ fn make_icon() -> Icon {
     let bytes = include_bytes!("../assets/icon.png");
     let img = image::load_from_memory(bytes).expect("failed to decode icon.png");
     
-    // Tray icons are tiny. If we pass a 256x256 image to Windows, it uses
-    // a fast, ugly downscaler. We resize it ourselves using a high-quality
-    // filter (Lanczos3) to 32x32 first.
-    let resized = image::imageops::resize(&img, 32, 32, image::imageops::FilterType::Lanczos3);
+    // Resize to 48x48 so Windows has enough pixels for high-DPI displays.
+    // It will scale it down gracefully for normal displays.
+    let resized = image::imageops::resize(&img, 48, 48, image::imageops::FilterType::Lanczos3);
     
     let rgba = resized.into_raw();
-    Icon::from_rgba(rgba, 32, 32).expect("valid icon")
+    Icon::from_rgba(rgba, 48, 48).expect("valid icon")
 }
 
 fn ansi_mode_from_str(s: &str) -> AnsiMode {
