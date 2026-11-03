@@ -20,6 +20,7 @@ pub enum WriteOp {
         adapter: &'static str,
         target: PathBuf,
         content: String,
+        atomic: bool,
     },
     Registry {
         adapter: &'static str,
@@ -66,7 +67,7 @@ pub fn apply_ops(
 
     for op in ops {
         match op {
-            WriteOp::File { adapter, target, content } => {
+            WriteOp::File { adapter, target, content, atomic } => {
                 let backup = backup_path(target);
                 let temp = temp_path(target);
 
@@ -74,7 +75,7 @@ pub fn apply_ops(
                     adapter,
                     target,
                     Some(&backup),
-                    Some(&temp),
+                    if *atomic { Some(&temp) } else { None },
                 )?;
 
                 if !backup.exists() && target.exists() {
@@ -85,13 +86,21 @@ pub fn apply_ops(
                 if let Some(parent) = target.parent() {
                     fs::create_dir_all(parent)?;
                 }
-                fs::write(&temp, content)?;
-                fs::rename(&temp, target)?;
+
+                if *atomic {
+                    // Standard safe write: Temp file, then rename
+                    fs::write(&temp, content)?;
+                    fs::rename(&temp, target)?;
+                } else {
+                    // In-place write: Truncates and overwrites, preserving file handle
+                    fs::write(target, content)?;
+                }
 
                 journal.mark_done(entry)?;
                 tracing::info!(
                     adapter = adapter,
                     path = %target.display(),
+                    atomic = atomic,
                     "wrote file"
                 );
             }
@@ -295,10 +304,8 @@ pub fn remove_block(original: &str, marker_open: &str, marker_close: &str) -> St
     original.to_string()
 }
 
-
-
-
 /// Check if a process is currently running using tasklist.
+#[allow(dead_code)]
 pub fn is_process_running(exe_name: &str) -> bool {
     use std::process::Command;
     use std::os::windows::process::CommandExt;
@@ -319,6 +326,7 @@ pub fn is_process_running(exe_name: &str) -> bool {
 
 /// Kill a process by exe name and immediately relaunch it,
 /// but ONLY if it was already running.
+#[allow(dead_code)]
 pub fn restart_process(exe_name: &str, args: &[&str]) -> Result<ReloadOutcome> {
     use std::process::Command;
     use std::os::windows::process::CommandExt;

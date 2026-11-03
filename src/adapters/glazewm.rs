@@ -115,6 +115,7 @@ impl AppAdapter for GlazeWm {
             adapter: "glazewm",
             target: path,
             content: new_text,
+            atomic: true,
         }])
     }
 

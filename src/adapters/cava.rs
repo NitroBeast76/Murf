@@ -77,7 +77,8 @@ impl AppAdapter for Cava {
         Ok(vec![WriteOp::File {
             adapter: "cava",
             target: path,
-            content: new_text,
+            content: new_text, 
+            atomic: true,
         }])
     }
 

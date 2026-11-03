@@ -66,6 +66,7 @@ impl AppAdapter for Chronoterm {
             adapter: "chronoterm",
             target: path,
             content: new_text,
+            atomic: true,
         }])
     }
 

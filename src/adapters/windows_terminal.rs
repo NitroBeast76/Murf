@@ -59,6 +59,7 @@ impl AppAdapter for WindowsTerminal {
                 adapter: "windows_terminal",
                 target: path,
                 content,
+                atomic:true,
             });
         }
         Ok(ops)

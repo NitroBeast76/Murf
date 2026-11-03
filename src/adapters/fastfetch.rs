@@ -114,6 +114,7 @@ impl AppAdapter for Fastfetch {
             adapter: "fastfetch",
             target: path,
             content,
+            atomic: true,
         }])
     }
 

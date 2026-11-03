@@ -139,6 +139,7 @@ impl AppAdapter for Starship {
             adapter: "starship",
             target: path,
             content: final_text,
+            atomic: true,
         }])
     }
 
