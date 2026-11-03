@@ -22,6 +22,24 @@ impl Yasb {
     fn styles_path() -> Option<PathBuf> {
         Some(Self::config_dir()?.join("styles.css"))
     }
+    fn yasb_config_path() -> Option<PathBuf> {
+        Some(Self::config_dir()?.join("config.yaml"))
+    }
+
+    fn watching_stylesheet() -> bool {
+        let Some(path) = Self::yasb_config_path() else { return true };
+        let Ok(text) = fs::read_to_string(&path) else { return true };
+        for line in text.lines() {
+            let t = line.trim();
+            let rest = if let Some(r) = t.strip_prefix("watch_stylesheet:") {
+                r
+            } else if let Some(r) = t.strip_prefix("watch_stylesheets:") {
+                r
+            } else { continue };
+            return !rest.trim().trim_end_matches(',').eq_ignore_ascii_case("false");
+        }
+        true
+    }
 }
 
 impl AppAdapter for Yasb {
@@ -109,38 +127,26 @@ impl AppAdapter for Yasb {
     }
 
     fn reload(&self) -> Result<ReloadOutcome> {
-        // 1. Try yasbc (graceful IPC reload)
+        // If the watcher is enabled, our in-place write triggered it.
+        // Calling yasbc reload here causes a flicker, so we skip it.
+        if Self::watching_stylesheet() {
+            tracing::info!("yasb watcher enabled; skipping yasbc to prevent flicker");
+            return Ok(ReloadOutcome { live_reload: 1, ..Default::default() });
+        }
+
+        // If the user disabled the watcher, we have to force a reload.
         let mut cmd = Command::new("yasbc");
         cmd.creation_flags(0x08000000);
         cmd.arg("reload");
 
         if let Ok(output) = cmd.output() {
             if output.status.success() {
-                tracing::info!("yasb reloaded via yasbc");
+                tracing::info!("yasb reloaded via yasbc (watcher disabled)");
                 return Ok(ReloadOutcome { live_reload: 1, ..Default::default() });
             }
         }
 
-        // 2. If yasbc fails, try the standard install path
-        let local_yasbc = std::env::var("LOCALAPPDATA")
-            .map(|d| PathBuf::from(d).join("Programs").join("YASB").join("yasbc.exe"))
-            .unwrap_or_default();
-
-        if local_yasbc.exists() {
-            let mut fallback_cmd = Command::new(local_yasbc);
-            fallback_cmd.creation_flags(0x08000000);
-            fallback_cmd.arg("reload");
-            
-            if let Ok(output) = fallback_cmd.output() {
-                if output.status.success() {
-                    tracing::info!("yasb reloaded via local yasbc path");
-                    return Ok(ReloadOutcome { live_reload: 1, ..Default::default() });
-                }
-            }
-        }
-
-        // 3. If all else fails, don't kill it. Just rely on the in-place watcher.
-        tracing::warn!("yasbc not found or failed; relying on YASB file watcher");
-        Ok(ReloadOutcome { live_reload: 1, ..Default::default() })
+        tracing::warn!("yasbc not found; config written but YASB may need a manual restart");
+        Ok(ReloadOutcome { deferred: 1, ..Default::default() })
     }
 }
