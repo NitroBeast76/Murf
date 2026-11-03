@@ -9,6 +9,7 @@ pub mod windows_accent;
 pub mod windows_theme;
 pub mod windows_terminal;
 pub mod yasb;
+pub mod yasb_auto; // <-- ADDED
 
 use crate::palette::Palette;
 use anyhow::Result;

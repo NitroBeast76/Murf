@@ -44,10 +44,7 @@ fn make_icon() -> Icon {
     let bytes = include_bytes!("../assets/icon.png");
     let img = image::load_from_memory(bytes).expect("failed to decode icon.png");
     
-    // Resize to 48x48 so Windows has enough pixels for high-DPI displays.
-    // It will scale it down gracefully for normal displays.
     let resized = image::imageops::resize(&img, 48, 48, image::imageops::FilterType::Lanczos3);
-    
     let rgba = resized.into_raw();
     Icon::from_rgba(rgba, 48, 48).expect("valid icon")
 }
@@ -154,17 +151,27 @@ fn run_apply(wallpaper: &str, cfg: &config::Config) {
 }
 
 fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let is_cli = args.contains(&"--unapply".to_string()) || args.contains(&"--dry-run".to_string());
+
+    // If run from CLI, attach to the parent console so we can print output
+    if is_cli {
+        #[cfg(windows)]
+        unsafe {
+            use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+            let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+        }
+    }
+
     let mut cfg = config::load_or_default()?;
     let default_level = cfg.general.log_level.clone();
 
-    // Set up file logging (since the console is hidden)
+    // Set up file logging
     let log_dir = std::env::var("LOCALAPPDATA")
         .map(|d| PathBuf::from(d).join("Murf").join("logs"))
         .unwrap_or_else(|_| PathBuf::from("."));
     
-    if let Err(e) = std::fs::create_dir_all(&log_dir) {
-        eprintln!("Failed to create log dir: {}", e);
-    }
+    if let Err(_e) = std::fs::create_dir_all(&log_dir) {}
     
     let file_appender = tracing_appender::rolling::daily(&log_dir, "murf.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
@@ -177,6 +184,39 @@ fn main() -> Result<()> {
         )
         .init();
 
+    // --- CLI HANDLERS ---
+    if args.contains(&"--unapply".to_string()) {
+        if let Some(styles) = adapters::yasb::Yasb::styles_path() {
+            if let Ok(text) = std::fs::read_to_string(&styles) {
+                let clean = adapters::yasb_auto::strip_block(&text);
+                let _ = std::fs::write(&styles, clean);
+                println!("\n[SUCCESS] Unapplied Murf theme from styles.css");
+                return Ok(());
+            }
+        }
+        println!("\n[ERROR] Could not find styles.css");
+        return Ok(());
+    }
+
+    if args.contains(&"--dry-run".to_string()) {
+        if let Some(styles) = adapters::yasb::Yasb::styles_path() {
+            if let Ok(text) = std::fs::read_to_string(&styles) {
+                println!("\n[DRY RUN] Reading {}", styles.display());
+                println!("Current file size: {} bytes", text.len());
+                println!("Contains MURF block: {}", text.contains("MURF THEME START"));
+                println!("If applied, Murf would append the following override block to the bottom of your file:");
+                println!("--------------------------------------------------");
+                // Since we don't have the palette in CLI mode, we mock it
+                println!(":root {{\n  --background: ...;\n  --text: ...;\n  --accent: ...;\n}}");
+                println!("--------------------------------------------------");
+                return Ok(());
+            }
+        }
+        println!("\n[ERROR] Could not find styles.css");
+        return Ok(());
+    }
+
+    // --- TRAY APP HANDLER ---
     tracing::info!(version = VERSION, "murf starting");
     let _ = journal::recover();
     autostart::sync_from_windows();
@@ -185,7 +225,6 @@ fn main() -> Result<()> {
     let paused = Arc::new(AtomicBool::new(false));
     let autostart_flag = std::env::args().any(|a| a == "--autostart");
 
-    // Register Global Hotkey (Ctrl+Alt+M)
     let hotkey_manager = GlobalHotKeyManager::new().unwrap();
     let hotkey = HotKey::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyM);
     let _ = hotkey_manager.register(hotkey);
@@ -219,7 +258,6 @@ fn main() -> Result<()> {
     let apply_now        = MenuItem::new("Apply now\tCtrl+Alt+M", true, None);
     let pause_item       = CheckMenuItem::new("Pause watching", true, false, None);
     
-    // Adapters Submenu
     let adapters_menu = Submenu::new("Adapters", true);
     let mut adapter_items = Vec::new();
     let adapter_list = [
@@ -310,7 +348,6 @@ fn main() -> Result<()> {
                 } else if e.id == quit_id {
                     *control_flow = ControlFlow::Exit;
                 } else {
-                    // Handle adapter toggles
                     for (id, item) in &adapter_items {
                         if e.id == *item.id() {
                             let enabled = {

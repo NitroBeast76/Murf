@@ -69,7 +69,11 @@ pub struct AppCfg {
     pub reload_cmd: Vec<String>,
     #[serde(default)]
     pub logo_source: Option<String>,
+    #[serde(default = "default_auto_theme")]
+    pub auto_theme: bool,
 }
+
+fn default_auto_theme() -> bool { true }
 
 impl Default for AppCfg {
     fn default() -> Self {
@@ -81,6 +85,7 @@ impl Default for AppCfg {
             reload: "auto".into(),
             reload_cmd: Vec::new(),
             logo_source: None,
+            auto_theme: true, // <-- FIXED: Added here
         }
     }
 }
