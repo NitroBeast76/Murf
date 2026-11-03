@@ -1,8 +1,4 @@
 // Cava adapter.
-//
-// Replaces the [color] table in cava's config in place with a
-// Murf-managed version between markers. Removes the earlier
-// companion-file include block if present.
 
 use super::{home_dir, remove_block, replace_table, AppAdapter, ReloadOutcome, WriteOp};
 use crate::palette::Palette;
@@ -43,10 +39,46 @@ impl AppAdapter for Cava {
         let mut text = fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
 
-        if text.contains("murf-colors.ini") {
+        // 1. Ensure Cava's native watcher is enabled
+        let mut has_live_config = false;
+        let mut lines: Vec<String> = text.lines().map(String::from).collect();
+        
+        for line in lines.iter_mut() {
+            let t = line.trim();
+            if t.starts_with("live-config") {
+                // Replace existing line
+                let indent = &line[..line.len() - line.trim_start().len()];
+                *line = format!("{}live-config = 1", indent);
+                has_live_config = true;
+                break;
+            }
+        }
+        
+        if !has_live_config {
+            // Inject it right after [general]
+            let mut injected = false;
+            for (i, line) in lines.iter().enumerate() {
+                if line.trim() == "[general]" {
+                    lines.insert(i + 1, "live-config = 1".to_string());
+                    injected = true;
+                    break;
+                }
+            }
+            // If no [general], just append it at the top
+            if !injected {
+                lines.insert(0, "[general]\nlive-config = 1\n".to_string());
+            }
+        }
+        
+        text = lines.join("\n");
+        if !text.ends_with('\n') { text.push('\n'); }
+
+        // 2. Strip old Murf color block
+        if text.contains("murf-colors.ini") || text.contains("# <murf>") {
             text = remove_block(&text, MARKER_OPEN, MARKER_CLOSE);
         }
 
+        // 3. Generate new color block
         let body = format!(
             "[color]\n\
              background = '{bg}'\n\
@@ -77,13 +109,13 @@ impl AppAdapter for Cava {
         Ok(vec![WriteOp::File {
             adapter: "cava",
             target: path,
-            content: new_text, 
-            atomic: true,
+            content: new_text,
+            atomic: false, // In-place to trigger the watcher reliably
         }])
     }
 
     fn reload(&self) -> Result<ReloadOutcome> {
-        tracing::info!("cava config written; restart cava to see new colors");
-        Ok(ReloadOutcome { deferred: 1, ..Default::default() })
+        tracing::info!("cava live-config enabled; watcher will reload automatically");
+        Ok(ReloadOutcome { live_reload: 1, ..Default::default() })
     }
 }

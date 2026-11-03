@@ -2,7 +2,7 @@
 
 Welcome, friend. 
 
-If you are reading this, it means you’ve probably seen those gorgeous, perfectly color-coordinated Linux desktops (you know the ones on r/unixporn) and thought, *"I want that on my Windows machine, but I don't want to spend 40 hours configuring it."*
+If you are reading this, it means you’ve probably seen those gorgeous, perfectly color-coordinated Linux desktops on the internet and thought, *"I want that on my Windows machine, but I don't want to spend 40 hours configuring it."*
 
 Good news: **You don't have to.** 
 
@@ -18,14 +18,11 @@ Let’s get you set up.
 
 Because we are nice people, Murf is a **single, standalone executable**. You don't need to install Python, Node, Rust, or Matugen. It's all baked into the `.exe`.
 
-1. Go to the **Releases** page and download `Murf-v0.2.1-win64.zip`.
+1. Go to the **Releases** page and download `Murf-v0.2.2-win64.zip`.
 2. Extract `murf.exe` to a folder you won't accidentally delete (like `C:\Users\YourName\Tools\`).
 3. Double-click `murf.exe`. 
 4. Look down at your system tray (next to your clock). You'll see a Murf icon.
-
-**Right-click that icon.** Click **Start at login**. Now you never have to think about it again.
-
-*Note: On first run, Murf will silently extract the Matugen color engine to your `%LOCALAPPDATA%` folder. You won't see a console window flash. It's magic.*
+5. Right-click that icon. Click **Start at login**. Now you never have to think about it again.
 
 ---
 
@@ -34,12 +31,9 @@ Because we are nice people, Murf is a **single, standalone executable**. You don
 Murf is smart, but it lets you boss it around. It generates a configuration file at:
 `%APPDATA%\Murf\murf.toml`
 
-Open it in Notepad. You don't need to change anything to get started, but this is where you can:
-*   Turn specific apps on or off (`enabled = true/false`).
-*   Change the morph speed (make it snap instantly, or smoothly wait 2 seconds).
-*   Tell Murf where to find your apps if you use portable folders instead of the standard ones.
-
-**The Golden Rule:** If Murf is acting weird, check the logs at `%LOCALAPPDATA%\Murf\logs\murf.log`. It will literally tell you what went wrong.
+You don't need to change anything to get started, but this is where you can:
+*   **Change the Morph Speed:** Look for `settle_delay_ms = 500`. That means it waits half a second after you change your wallpaper before applying the theme. Drop it to `200` for instant snapping, or raise it to `1500` if your PC is slow.
+*   **Turn apps on/off:** If you don't use Cava, set `[apps.cava] enabled = false`.
 
 ---
 
@@ -47,81 +41,45 @@ Open it in Notepad. You don't need to change anything to get started, but this i
 
 YASB is amazing, but CSS (the language used to style it) is a bit of a diva. 
 
-Because Murf has to write dynamic colors, it uses something called **CSS Variables**. Depending on how you set up YASB previously, you have two paths. **Pick ONE of the following options.**
+Since v0.2.2, Murf automatically injects a theme block into your `styles.css`. But how it works depends entirely on how you wrote your CSS. **Pick the scenario that matches your setup:**
 
-### Path A: Your YASB is "Hardcoded" (You have hex codes like `#1e1e2e` everywhere)
-If you look at your `styles.css` and see literal colors slapped directly onto widgets, CSS variables won't override them. You have to use our full replacement file.
+### Scenario A: You use Variables (The "Smart" Way)
+If your `styles.css` has variables like `var(--background)` or `var(--text)` (this is how most modern themes are written), **you don't have to do anything**. 
 
-1. Open the `examples/yasb-styles.css` file from the Murf repo.
-2. Copy the **entire contents** of that file.
-3. Open your own YASB `styles.css`.
-4. Delete everything in your file.
-5. Paste the example file in.
-6. Save. Restart YASB.
+Murf will inject the new colors at the bottom of your file, and YASB will morph instantly. Just sit back and enjoy.
 
-*Why?* The example file replaces all hardcoded hexes with variables. Now, when Murf updates the colors, YASB actually listens.
+### Scenario B: You use Hardcoded Colors (The "Dumb" Way)
+If your `styles.css` has literal hex codes slapped onto widgets (like `.widget { background: #1e1e2e; }`), **Murf cannot override them automatically.** CSS doesn't work that way; hardcoded values ignore variables. 
 
-### Path B: Your YASB is "Variable-Based" (You already use `var(--background)`)
-You are a genius. This is much easier.
+You have two choices to fix this:
+1. **The Easy Way:** Open the `examples/yasb-styles.css` file from the Murf repo. Copy the `:root` block and paste it over your existing colors. Then, do a "Find and Replace" in your editor, replacing `#1e1e2e` with `var(--background)`. It takes 5 minutes.
+2. **The Clean Way:** Swap to a modern YASB theme that uses variables. (Murf now works perfectly with them).
 
-1. Open your YASB `styles.css`.
-2. Scroll to the top and find your `:root { ... }` block.
-3. Add this block inside it:
-```css
-    /* Murf Dynamic Colors */
-    --background:        var(--murf-bg);
-    --background2:       var(--murf-surface-high);
-    --accent:            var(--murf-primary);
-    --text:              var(--murf-fg);
-    --accentText:        var(--murf-on-primary);
-    --hover:             var(--murf-surface-high);
-    --mutedBG:           var(--murf-surface-dim);
-    --border:            var(--murf-outline);
-    --redFlash:          var(--murf-error);
-    --subtext:           var(--murf-secondary);
-```
-4. Save. Restart YASB.
-
-*(If you get stuck, just copy the `examples/yasb-styles.css` file. We won't judge.)*
+*(Note: If you ever want to undo Murf's changes, just open your terminal and run `murf.exe --unapply`. It deletes the Murf block and restores your original file).*
 
 ---
 
 ## 🪟 Step 4: Setup Your Window Borders (GlazeWM)
 
-GlazeWM is written in YAML. YAML is like that one strict teacher who will fail you if you use a Tab instead of 4 Spaces. Be careful.
+GlazeWM is written in YAML. YAML is like that one strict teacher who will fail you if you use a Tab instead of 4 Spaces.
 
-Murf uses **YAML Anchors** to theme GlazeWM. Think of an anchor as a label. Murf puts a label at the top of your config, and you just point your border colors to that label.
+**Good news:** In v0.2.2, GlazeWM is completely zero-config. We dropped the complicated YAML anchors. Murf now just finds your window borders and replaces the colors directly.
 
-1. Open your GlazeWM `config.yaml`.
-2. Find the `window_effects:` section.
-3. Change your `color:` lines to look exactly like this:
+Just open your GlazeWM `config.yaml` and make sure your `window_effects` section has the standard `border` -> `color` lines:
 
 ```yaml
 window_effects:
   focused_window:
     border:
       enabled: true
-      color: *murf_primary    # <-- Use the Murf anchor here
-    hide_title_bar:
-      enabled: false
-    corner_style:
-      enabled: true
-      style: 'rounded'
-    transparency:
-      enabled: true
-      opacity: '98%'
-
+      color: '#7AA2F7'    # <-- Murf will automatically replace this
   other_windows:
     border:
       enabled: true
-      color: *murf_outline    # <-- And here
-    # ... rest of your config
+      color: '#3B4261'    # <-- And this
 ```
 
-4. Save the file.
-5. Reload GlazeWM (`Alt + Shift + R`).
-
-*Note: Don't worry about defining `*murf_primary` anywhere. Murf automatically injects the definitions at the very top of your YAML file on every apply.*
+That's it. Don't touch anything else. Murf will scan the file, find the focused and unfocused borders, and morph them with your wallpaper.
 
 ---
 
@@ -133,14 +91,9 @@ If you use **Starship** and **Fastfetch**, they need to know where Murf is writi
 2. Paste the following block into the file (you can replace your existing Fastfetch/Starship commands with this):
 
 ```powershell
-# Run Fastfetch using Murf's dynamically generated config
+# Run Fastfetch using Murf's dynamically generated colors
 if (Get-Command fastfetch -ErrorAction SilentlyContinue) {
-    $murfConfig = "$HOME\.config\fastfetch\murf.jsonc"
-    if (Test-Path $murfConfig) {
-        fastfetch --config $murfConfig
-    } else {
-        fastfetch
-    }
+    fastfetch
 }
 
 # Initialize Starship prompt
@@ -151,41 +104,34 @@ if (Get-Command starship -ErrorAction SilentlyContinue) {
 
 3. Save and close. Open a new terminal window.
 
-**Want your own custom ASCII art in Fastfetch?**
-By default, Fastfetch shows the Windows logo. If you want your own text art:
-1. Save your ASCII art as a `.txt` file.
-2. Open `%APPDATA%\Murf\murf.toml`.
-3. Add this line under the `[apps.fastfetch]` section:
-```toml
-logo_source = "C:\\Users\\YourName\\my-ascii-art.txt"
-```
-*(Make sure to use double backslashes `\\` in the TOML file).*
+*(Notice how you don't need `--config` anymore? Murf v0.2.2 directly injects colors into your existing `config.jsonc`, so the standard `fastfetch` command just works).*
 
 ---
 
-## 🕹️ Step 6: Daily Driving Murf
+## 🕹️ Step 6: Daily Driving Murf (The CLI)
 
-You really don't have to do anything. But if you want to feel like a hacker:
+You really don't have to do anything. But if you want to feel like a hacker, Murf comes with a few CLI commands:
 
-*   **Force a color change:** Press `Ctrl + Alt + M` anywhere on your desktop. This forces Murf to re-read the wallpaper and apply the theme instantly.
-*   **Pause watching:** Right-click the tray icon and check "Pause watching". Useful if you are doing a presentation and don't want your screen to flash colors.
-*   **Toggle apps:** If you suddenly hate Cava, right-click -> Adapters -> uncheck Cava. Murf will stop bothering it.
+*   **Force a color change:** Press `Ctrl + Alt + M` anywhere on your desktop, or right-click the tray and hit "Apply now".
+*   **Wipe the theme:** `murf.exe --unapply` -> Removes the Murf block from YASB instantly.
+*   **What is it doing?:** `murf.exe --dry-run` -> Tells you if it sees your MURF block and what it *would* inject. Useful for debugging.
+*   **Pause watching:** Right-click the tray icon and check "Pause watching". Useful if you are doing a presentation.
 
 ---
 
 ## 🚨 Troubleshooting (When things go sideways)
 
 **"My CLI apps (Cava, Chronoterm) aren't changing colors!"**
-Unlike GUI apps, terminal apps can't safely be restarted in the background without breaking your terminal layout. Murf updates their config files instantly, but they won't show the new colors until you close them and open them again.
+Unlike GUI apps, terminal apps can't safely be restarted in the background without breaking your layout. Murf updates their config files instantly, but they won't show the new colors until you close them and open them again.
 
 **"My YASB colors aren't changing!"**
-You probably have hardcoded hex codes in your CSS. Go back to **Step 3** and use our full replacement example.
+You probably have hardcoded hex codes in your CSS. Go back to **Step 3, Scenario B** and convert your colors to variables (`var(--background)`).
 
-**"Murf won't start / The tray icon is missing."**
-Did you delete the `assets` folder? You shouldn't have—Murf is a standalone `.exe`. If it's crashing, open `%LOCALAPPDATA%\Murf\logs\murf.log` and see what it's crying about.
+**"Fastfetch is throwing a 'Logo padding values must be positive integers' error!"**
+Your `config.jsonc` got corrupted by an older version of Murf. Open `~/.config/fastfetch/config.jsonc` and ensure your padding uses clean numbers (like `1`), not decimals (like `1.0`).
 
-**"GlazeWM says it can't find the *murf_primary anchor."**
-You probably have a YAML syntax error (a missing space, or a stray character). Murf injects the block perfectly, so if it fails, it's usually a formatting issue in the rest of your config.
+**"GlazeWM says it can't find something / won't reload."**
+You probably have a YAML syntax error (a missing space, or a stray character). Murf does targeted text replacement, so if it fails, it's usually a formatting issue in the rest of your config.
 
 ---
 
