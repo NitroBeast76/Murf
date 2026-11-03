@@ -299,7 +299,7 @@ fn main() -> Result<()> {
     let open_config      = MenuItem::new("Open Config", true, None);
     let open_logs        = MenuItem::new("Open Logs", true, None);
     let autostart_item   = CheckMenuItem::new("Start at login", true, autostart_enabled, None);
-    let update_item      = MenuItem::new(format!("Murf v{}", VERSION), true, false); // Disabled until update found
+    let update_item      = MenuItem::new(format!("Murf v{}", VERSION), false, None); // Disabled until update found
     let quit             = MenuItem::new("Quit", true, None);
 
     let apply_id     = apply_now.id().clone();
