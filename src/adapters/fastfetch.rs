@@ -19,6 +19,7 @@ impl Fastfetch {
 
 /// Recursively convert jsonc_parser's JsonValue to serde_json::Value.
 /// Recursively convert jsonc_parser's JsonValue to serde_json::Value.
+/// Recursively convert jsonc_parser's JsonValue to serde_json::Value.
 fn convert_jsonc(v: jsonc_parser::JsonValue) -> serde_json::Value {
     use jsonc_parser::JsonValue;
     use serde_json::Value;
@@ -26,9 +27,15 @@ fn convert_jsonc(v: jsonc_parser::JsonValue) -> serde_json::Value {
         JsonValue::Null => Value::Null,
         JsonValue::Boolean(b) => Value::Bool(b),
         JsonValue::Number(n) => {
-            // In jsonc-parser 0.34, Number is a &str (raw number).
-            let parsed: f64 = n.parse().unwrap_or(0.0);
-            Value::Number(serde_json::Number::from_f64(parsed).unwrap_or_else(|| 0.into()))
+            // First, try to parse as an integer (i64). If that works, use it.
+            // This prevents us from turning "1" into "1.0", which breaks Fastfetch padding.
+            if let Ok(i) = n.parse::<i64>() {
+                Value::Number(i.into())
+            } else if let Ok(f) = n.parse::<f64>() {
+                Value::Number(serde_json::Number::from_f64(f).unwrap_or_else(|| 0.into()))
+            } else {
+                Value::Number(0.into())
+            }
         }
         JsonValue::String(s) => Value::String(s.to_string()),
         JsonValue::Array(a) => Value::Array(a.into_iter().map(convert_jsonc).collect()),
