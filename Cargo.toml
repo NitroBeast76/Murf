@@ -1,6 +1,6 @@
 [package]
 name = "murf"
-version = "0.1.0"
+version = "0.2.2"
 edition = "2021"
 description = "Wallpaper-driven theming for Windows apps."
 license = "MIT"
@@ -25,6 +25,7 @@ anyhow = "1"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 jsonc-parser = "0.34.0"
 lightningcss = "1.0.0-alpha.72"
+self_update = "0.40"
 
 [profile.release]
 strip = true

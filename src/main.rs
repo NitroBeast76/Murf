@@ -32,12 +32,16 @@ use tray_icon::{
 };
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const REPO_OWNER: &str = "NitroBeast76";
+const REPO_NAME: &str = "Murf";
 
 enum UserEvent {
     Menu(MenuEvent),
     WallpaperChanged(String),
     AutostartDelayElapsed,
     Hotkey,
+    UpdateAvailable(String),
+    DoUpdate,
 }
 
 fn make_icon() -> Icon {
@@ -154,7 +158,6 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let is_cli = args.contains(&"--unapply".to_string()) || args.contains(&"--dry-run".to_string());
 
-    // If run from CLI, attach to the parent console so we can print output
     if is_cli {
         #[cfg(windows)]
         unsafe {
@@ -166,12 +169,11 @@ fn main() -> Result<()> {
     let mut cfg = config::load_or_default()?;
     let default_level = cfg.general.log_level.clone();
 
-    // Set up file logging
     let log_dir = std::env::var("LOCALAPPDATA")
         .map(|d| PathBuf::from(d).join("Murf").join("logs"))
         .unwrap_or_else(|_| PathBuf::from("."));
     
-    if let Err(_e) = std::fs::create_dir_all(&log_dir) {}
+    let _ = std::fs::create_dir_all(&log_dir);
     
     let file_appender = tracing_appender::rolling::daily(&log_dir, "murf.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
@@ -204,11 +206,6 @@ fn main() -> Result<()> {
                 println!("\n[DRY RUN] Reading {}", styles.display());
                 println!("Current file size: {} bytes", text.len());
                 println!("Contains MURF block: {}", text.contains("MURF THEME START"));
-                println!("If applied, Murf would append the following override block to the bottom of your file:");
-                println!("--------------------------------------------------");
-                // Since we don't have the palette in CLI mode, we mock it
-                println!(":root {{\n  --background: ...;\n  --text: ...;\n  --accent: ...;\n}}");
-                println!("--------------------------------------------------");
                 return Ok(());
             }
         }
@@ -237,6 +234,25 @@ fn main() -> Result<()> {
     GlobalHotKeyEvent::set_event_handler(Some(move |_event| {
         let _ = hotkey_proxy.send_event(UserEvent::Hotkey);
     }));
+
+    // Background Update Checker
+    let update_proxy = event_loop.create_proxy();
+    std::thread::spawn(move || {
+        let current = env!("CARGO_PKG_VERSION").trim_start_matches('v');
+        if let Ok(release) = self_update::backends::github::Update::configure()
+            .repo_owner(REPO_OWNER)
+            .repo_name(REPO_NAME)
+            .bin_name("murf.exe")
+            .current_version(current)
+            .build()
+            .and_then(|u| u.get_latest_release()) 
+        {
+            let latest = release.version.trim_start_matches('v');
+            if latest != current {
+                let _ = update_proxy.send_event(UserEvent::UpdateAvailable(latest.to_string()));
+            }
+        }
+    });
 
     let watcher = watcher::Watcher::start(cfg.general.settle_delay_ms)?;
     let watcher_proxy = event_loop.create_proxy();
@@ -283,7 +299,7 @@ fn main() -> Result<()> {
     let open_config      = MenuItem::new("Open Config", true, None);
     let open_logs        = MenuItem::new("Open Logs", true, None);
     let autostart_item   = CheckMenuItem::new("Start at login", true, autostart_enabled, None);
-    let about            = MenuItem::new(format!("Murf {}", VERSION), true, None);
+    let update_item      = MenuItem::new(format!("Murf v{}", VERSION), true, false); // Disabled until update found
     let quit             = MenuItem::new("Quit", true, None);
 
     let apply_id     = apply_now.id().clone();
@@ -292,7 +308,7 @@ fn main() -> Result<()> {
     let cfg_id       = open_config.id().clone();
     let logs_id      = open_logs.id().clone();
     let autostart_id = autostart_item.id().clone();
-    let about_id     = about.id().clone();
+    let update_id    = update_item.id().clone();
     let quit_id      = quit.id().clone();
 
     let sep1 = PredefinedMenuItem::separator();
@@ -308,7 +324,7 @@ fn main() -> Result<()> {
     menu.append(&open_config)?;
     menu.append(&open_logs)?;
     menu.append(&autostart_item)?;
-    menu.append(&about)?;
+    menu.append(&update_item)?;
     menu.append(&sep3)?;
     menu.append(&quit)?;
 
@@ -343,8 +359,11 @@ fn main() -> Result<()> {
                 } else if e.id == logs_id {
                     let dir = std::env::var("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Murf").join("logs")).unwrap_or_default();
                     let _ = std::process::Command::new("cmd").creation_flags(0x08000000).args(["/C", "start", "", &dir.to_string_lossy()]).spawn();
-                } else if e.id == about_id {
-                    registry::show_message_box("Murf", &format!("Murf {}\n\nConfig: {}", VERSION, config::config_path().display()));
+                } else if e.id == update_id {
+                    let _ = std::process::Command::new("cmd")
+                        .creation_flags(0x08000000)
+                        .args(["/C", "start", "https://github.com/NitroBeast76/Murf/releases/latest"])
+                        .spawn();
                 } else if e.id == quit_id {
                     *control_flow = ControlFlow::Exit;
                 } else {
@@ -361,6 +380,14 @@ fn main() -> Result<()> {
                         }
                     }
                 }
+            }
+            tao::event::Event::UserEvent(UserEvent::UpdateAvailable(version)) => {
+                // Change the menu item to let the user know
+                update_item.set_text(format!("Update to v{} available!", version));
+                update_item.set_enabled(true);
+            }
+            tao::event::Event::UserEvent(UserEvent::DoUpdate) => {
+                // (Unused for now, clicking the menu item opens the browser to the release page)
             }
             tao::event::Event::UserEvent(UserEvent::WallpaperChanged(path)) => {
                 if !paused.load(Ordering::SeqCst) { run_apply(&path, &cfg); }
