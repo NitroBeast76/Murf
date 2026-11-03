@@ -16,40 +16,35 @@ scheme_type = "scheme-tonal-spot"
 contrast = 0.0
 ansi_mapping = "semantic"
 
+# If the wallpaper is monochrome (greyscale), Matugen might extract a 
+# muddy color (like olive). This fallback forces a specific accent color.
+monochrome_fallback = "#808080"
+
 # =====================================================================
 #  Application Adapters
 #  Set `enabled = false` to stop Murf from touching an app.
-#  If Murf can't find an app automatically, uncomment `config_path`
-#  and point it directly to the file.
 # =====================================================================
 
 [apps.windows_terminal]
 enabled = true
-# config_paths = ["C:\\Users\\Name\\scoop\\persist\\windows-terminal\\settings.json"]
 
 [apps.yasb]
 enabled = true
-# config_dir = "D:\\Dotfiles\\yasb"
 
 [apps.glazewm]
 enabled = true
-# config_path = "D:\\Dotfiles\\glazewm\\config.yaml"
 
 [apps.chronoterm]
 enabled = true
-# config_path = "C:\\Users\\Name\\.config\\chronoterm\\config.toml"
 
 [apps.cava]
 enabled = true
-# config_path = "C:\\Users\\Name\\.config\\cava\\config"
 
 [apps.starship]
 enabled = true
-# config_path = "C:\\Users\\Name\\.config\\starship.toml"
 
 [apps.fastfetch]
 enabled = true
-# logo_source = "C:\\Users\\Name\\my-ascii-art.txt"
 
 [apps.windows_accent]
 enabled = true

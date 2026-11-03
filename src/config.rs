@@ -1,4 +1,5 @@
 // Config: %APPDATA%\Murf\murf.toml
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -42,6 +43,8 @@ pub struct PaletteCfg {
     pub contrast: f32,
     #[serde(default = "default_ansi_mapping")]
     pub ansi_mapping: String,
+    #[serde(default = "default_monochrome_fallback")]
+    pub monochrome_fallback: String,
 }
 
 fn default_source() -> String { "system".into() }
@@ -49,6 +52,7 @@ fn default_mode() -> String { "smart".into() }
 fn default_scheme_type() -> String { "scheme-tonal-spot".into() }
 fn default_contrast() -> f32 { 0.0 }
 fn default_ansi_mapping() -> String { "semantic".into() }
+fn default_monochrome_fallback() -> String { "#808080".into() }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppCfg {
@@ -96,6 +100,7 @@ impl Default for Config {
                 scheme_type: "scheme-tonal-spot".into(),
                 contrast: 0.0,
                 ansi_mapping: "semantic".into(),
+                monochrome_fallback: "#808080".into(),
             },
             apps: BTreeMap::new(),
         }
@@ -103,7 +108,9 @@ impl Default for Config {
 }
 
 pub fn config_dir() -> PathBuf {
-    let appdata = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    let appdata = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
     appdata.join("Murf")
 }
 
@@ -127,10 +134,20 @@ pub fn load_or_default() -> Result<Config> {
 }
 
 fn load_from(path: &Path) -> Result<Config> {
-    let raw = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("reading {}", path.display()))?;
     let expanded = expand_env(&raw);
-    let cfg: Config = toml::from_str(&expanded).with_context(|| format!("parsing {}", path.display()))?;
-    tracing::info!(path = %path.display(), mode = %cfg.palette.mode, "config loaded");
+
+    let cfg: Config = toml::from_str(&expanded)
+        .with_context(|| format!("parsing {}", path.display()))?;
+
+    tracing::info!(
+        path = %path.display(),
+        mode = %cfg.palette.mode,
+        scheme = %cfg.palette.scheme_type,
+        ansi = %cfg.palette.ansi_mapping,
+        "config loaded"
+    );
     Ok(cfg)
 }
 
@@ -144,10 +161,19 @@ fn write_to(path: &Path, _cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+pub fn save_config(cfg: &Config) -> Result<()> {
+    let path = config_path();
+    let text = toml::to_string_pretty(cfg)?;
+    fs::write(&path, text)?;
+    tracing::info!(path = %path.display(), "config saved");
+    Ok(())
+}
+
 fn expand_env(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let bytes: Vec<char> = s.chars().collect();
     let mut i = 0;
+
     while i < bytes.len() {
         if bytes[i] == '%' {
             if let Some(end) = bytes[i + 1..].iter().position(|&c| c == '%') {
@@ -173,14 +199,4 @@ fn expand_env(s: &str) -> String {
         i += 1;
     }
     out
-}
-
-
-
-pub fn save_config(cfg: &Config) -> Result<()> {
-    let path = config_path();
-    let text = toml::to_string_pretty(cfg)?;
-    fs::write(&path, text)?;
-    tracing::info!(path = %path.display(), "config saved");
-    Ok(())
 }

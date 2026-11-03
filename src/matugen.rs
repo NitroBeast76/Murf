@@ -3,6 +3,7 @@
 // Extracts the embedded matugen.exe to %LOCALAPPDATA%\Murf\bin on first run,
 // then invokes it.
 
+use crate::config::Config;
 use crate::palette::{Color, Palette};
 use anyhow::{anyhow, Context, Result};
 use std::collections::BTreeMap;
@@ -30,12 +31,7 @@ fn get_matugen_path() -> Result<PathBuf> {
     Ok(exe)
 }
 
-pub fn generate(
-    image_path: &str,
-    mode: &str,
-    scheme_type: &str,
-    contrast: f32,
-) -> Result<Palette> {
+pub fn generate(image_path: &str, cfg: &Config) -> Result<Palette> {
     let matugen_exe = get_matugen_path()?;
 
     let output = Command::new(&matugen_exe)
@@ -47,13 +43,15 @@ pub fn generate(
             "hex",
             "--dry-run",
             "--mode",
-            mode,
+            &cfg.palette.mode,
             "--type",
-            scheme_type,
+            &cfg.palette.scheme_type,
             "--contrast",
-            &contrast.to_string(),
+            &cfg.palette.contrast.to_string(),
             "--source-color-index",
             "0",
+            "--fallback-color",
+            &cfg.palette.monochrome_fallback,
         ])
         .output()
         .context("failed to run matugen")?;

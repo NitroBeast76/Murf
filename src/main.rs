@@ -106,7 +106,7 @@ fn write_palette_dump(wallpaper: &str, palette: &palette::Palette, cfg: &config:
 fn run_apply(wallpaper: &str, cfg: &config::Config) {
     tracing::info!(wallpaper = %wallpaper, "applying palette");
 
-    let palette = match matugen::generate(wallpaper, &cfg.palette.mode, &cfg.palette.scheme_type, cfg.palette.contrast) {
+    let palette = match matugen::generate(wallpaper, cfg) {
         Ok(p) => p,
         Err(e) => { tracing::error!(error = %e, "matugen failed"); return; }
     };
