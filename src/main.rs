@@ -41,7 +41,6 @@ enum UserEvent {
     AutostartDelayElapsed,
     Hotkey,
     UpdateAvailable(String),
-    DoUpdate,
 }
 
 fn make_icon() -> Icon {
@@ -385,9 +384,6 @@ fn main() -> Result<()> {
                 // Change the menu item to let the user know
                 update_item.set_text(format!("Update to v{} available!", version));
                 update_item.set_enabled(true);
-            }
-            tao::event::Event::UserEvent(UserEvent::DoUpdate) => {
-                // (Unused for now, clicking the menu item opens the browser to the release page)
             }
             tao::event::Event::UserEvent(UserEvent::WallpaperChanged(path)) => {
                 if !paused.load(Ordering::SeqCst) { run_apply(&path, &cfg); }

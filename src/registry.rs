@@ -179,6 +179,7 @@ pub fn broadcast_setting_change() -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn show_message_box(title: &str, text: &str) {
     use windows::Win32::UI::WindowsAndMessaging::{
         MessageBoxW, MB_ICONINFORMATION, MB_OK,
