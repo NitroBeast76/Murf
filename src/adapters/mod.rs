@@ -2,6 +2,7 @@
 
 pub mod cava;
 pub mod chronoterm;
+pub mod engine;
 pub mod fastfetch;
 pub mod glazewm;
 pub mod starship;

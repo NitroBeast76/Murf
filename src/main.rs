@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod adapters;
 mod autostart;
@@ -66,7 +66,7 @@ fn build_adapters(cfg: &config::Config) -> Vec<Box<dyn AppAdapter>> {
         Box::new(Chronoterm),
         Box::new(Cava),
         Box::new(Starship),
-        Box::new(GlazeWm),
+        //Box::new(GlazeWm),
         Box::new(Yasb),
         Box::new(WindowsAccent),
         Box::new(WindowsTheme),
@@ -116,6 +116,7 @@ fn run_apply(wallpaper: &str, cfg: &config::Config) {
     let adapters = build_adapters(cfg);
     let mut all_ops = Vec::new();
 
+    // 1. Run the old Rust adapters
     for a in &adapters {
         let app_cfg = cfg.apps.get(a.id()).cloned().unwrap_or_default();
         if !app_cfg.enabled { continue; }
@@ -124,6 +125,34 @@ fn run_apply(wallpaper: &str, cfg: &config::Config) {
         match a.plan(&palette, &app_cfg) {
             Ok(ops) => all_ops.extend(ops),
             Err(e) => tracing::error!(adapter = a.id(), error = %e, "planning failed"),
+        }
+    }
+
+    // 2. Run the new TOML Engine adapters
+    let toml_adapters = adapters::engine::load_builtin_adapters();
+    for engine in &toml_adapters {
+        // Skip if the user disabled it in murf.toml
+        let app_cfg = cfg.apps.get(&engine.config.adapter.name).cloned().unwrap_or_default();
+        if !app_cfg.enabled { continue; }
+        
+        // Find the target file
+        if let Some(target_path) = engine.resolve_target() {
+            // Read the current file
+            if let Ok(original) = std::fs::read_to_string(&target_path) {
+                // Render the Tera template
+                if let Ok(rendered) = engine.render(&palette) {
+                    // Inject the text
+                    if let Ok(new_content) = engine.apply(&original, &rendered) {
+                        // Create the WriteOp
+                        all_ops.push(adapters::WriteOp::File {
+                            adapter: "glazewm", // Or engine.config.adapter.name
+                            target: target_path,
+                            content: new_content,
+                            atomic: false, // YAML is fine with in-place
+                        });
+                    }
+                }
+            }
         }
     }
 

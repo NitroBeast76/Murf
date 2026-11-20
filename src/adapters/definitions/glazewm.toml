@@ -1,0 +1,21 @@
+[adapter]
+name = "glazewm"
+target_file = [
+    "${USERPROFILE}/.glzr/glazewm/config.yaml",
+    "${USERPROFILE}/.glaze-wm/config.yaml"
+]
+apply_strategy = "inject"
+comment_style = "hash"
+reload = ["glazewm", "command", "wm-reload-config"]
+
+template = """
+colors:
+  primary:    '{{ primary }}'
+  secondary:  '{{ secondary }}'
+  tertiary:   '{{ tertiary }}'
+  background: '{{ background }}'
+  surface:    '{{ surface }}'
+  on_surface: '{{ on_surface }}'
+  error:      '{{ error }}'
+  outline:    '{{ outline }}'
+"""
